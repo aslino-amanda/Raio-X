@@ -20,76 +20,44 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 .main{background:#F2EDE4;}
 [data-testid="stSidebarNav"]{display:none;}
 .stButton>button{background:#0D4F4A!important;color:#D4F53C!important;
-    font-weight:600!important;border:none!important;border-radius:10px!important;}
+    font-weight:600!important;border:none!important;border-radius:10px!important;
+    font-size:14px!important;padding:.6rem 1.5rem!important;}
 </style>
 """, unsafe_allow_html=True)
 
-# ── HEADER ────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style='background:#0D4F4A;border-radius:16px;padding:1.2rem 1.8rem;
-            margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between'>
-    <div>
-        <div style='font-size:24px;font-weight:700;color:#D4F53C;letter-spacing:-.5px'>
-            ⚡ X Li
-        </div>
-        <div style='font-size:12px;color:#9DBDBB;margin-top:3px'>
-            Inteligência de lojistas · Loja Integrada
-        </div>
-    </div>
-    <div style='display:flex;gap:10px'>
-        <a href='/Onboarding' target='_self'
-           style='background:#1A6A64;color:#D4F53C;text-decoration:none;
-                  border-radius:8px;padding:7px 18px;font-size:13px;font-weight:600'>
-            🚀 Onboarding
-        </a>
-        <a href='/Raio_X' target='_self'
-           style='background:#D4F53C;color:#0D4F4A;text-decoration:none;
-                  border-radius:8px;padding:7px 18px;font-size:13px;font-weight:600'>
-            ⚡ Raio X
-        </a>
-    </div>
+<div style='background:#0D4F4A;border-radius:16px;padding:1.2rem 1.8rem;margin-bottom:1.5rem'>
+    <div style='font-size:24px;font-weight:700;color:#D4F53C;letter-spacing:-.5px'>⚡ X Li</div>
+    <div style='font-size:12px;color:#9DBDBB;margin-top:3px'>Inteligência de lojistas · Loja Integrada</div>
 </div>
 """, unsafe_allow_html=True)
 
-# ── HOME ──────────────────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("""
-    <a href='/Onboarding' target='_self' style='text-decoration:none'>
-    <div style='background:white;border-radius:14px;padding:2rem;cursor:pointer;
-                border:2px solid transparent;transition:border .2s;height:100%'>
+    <div style='background:white;border-radius:14px;padding:2rem;margin-bottom:1rem'>
         <div style='font-size:32px;margin-bottom:1rem'>🚀</div>
-        <div style='font-size:18px;font-weight:700;color:#1A2E2B;margin-bottom:.5rem'>
-            Onboarding
-        </div>
+        <div style='font-size:18px;font-weight:700;color:#1A2E2B;margin-bottom:.5rem'>Onboarding</div>
         <div style='font-size:13px;color:#5A7A78;line-height:1.7'>
             Fila de lojas novas com gargalo identificado e ação recomendada.
             CS vê o que fazer sem precisar diagnosticar manualmente.
         </div>
-        <div style='margin-top:1.2rem;font-size:12px;font-weight:600;color:#0D4F4A'>
-            Abrir Onboarding →
-        </div>
     </div>
-    </a>
     """, unsafe_allow_html=True)
+    if st.button("🚀 Abrir Onboarding", use_container_width=True):
+        st.switch_page("pages/1_Onboarding.py")
 
 with col2:
     st.markdown("""
-    <a href='/Raio_X' target='_self' style='text-decoration:none'>
-    <div style='background:#0D4F4A;border-radius:14px;padding:2rem;cursor:pointer;height:100%'>
+    <div style='background:#0D4F4A;border-radius:14px;padding:2rem;margin-bottom:1rem'>
         <div style='font-size:32px;margin-bottom:1rem'>⚡</div>
-        <div style='font-size:18px;font-weight:700;color:#D4F53C;margin-bottom:.5rem'>
-            Raio X
-        </div>
+        <div style='font-size:18px;font-weight:700;color:#D4F53C;margin-bottom:.5rem'>Raio X</div>
         <div style='font-size:13px;color:#9DBDBB;line-height:1.7'>
             Monitoramento dos top sellers. O app identifica automaticamente
-            quem está em queda e abre o diagnóstico completo: causa raiz,
-            clientes churned e ação recomendada.
-        </div>
-        <div style='margin-top:1.2rem;font-size:12px;font-weight:600;color:#D4F53C'>
-            Abrir Raio X →
+            quem está em queda e abre o diagnóstico completo.
         </div>
     </div>
-    </a>
     """, unsafe_allow_html=True)
+    if st.button("⚡ Abrir Raio X", use_container_width=True):
+        st.switch_page("pages/2_Raio_X.py")
