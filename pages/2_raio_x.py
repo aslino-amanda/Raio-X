@@ -526,12 +526,12 @@ if st.session_state.rx_loja_id:
     st.markdown("#### 📉 Tendência de GMV — últimas 2 semanas vs mesmo período 30 dias atrás")
     if tend and tend.get("gmv_anterior"):
         def _fmt_dt(s):
-        try:
-            from datetime import datetime
-            return datetime.strptime(str(s)[:10], '%Y-%m-%d').strftime('%d/%m/%Y')
-        except: return str(s)[:10]
-    st.caption(f"Atual: {_fmt_dt(tend.get('atual_de',''))} → {_fmt_dt(tend.get('atual_ate',''))} | Ref: {_fmt_dt(tend.get('ref_de',''))} → {_fmt_dt(tend.get('ref_ate',''))}")
-        mt = st.columns(4)
+            try:
+                from datetime import datetime
+                return datetime.strptime(str(s)[:10], '%Y-%m-%d').strftime('%d/%m/%Y')
+            except:
+                return str(s)[:10]
+        st.caption(f"Atual: {_fmt_dt(tend.get('atual_de',''))} → {_fmt_dt(tend.get('atual_ate',''))} | Ref: {_fmt_dt(tend.get('ref_de',''))} → {_fmt_dt(tend.get('ref_ate',''))}")
         for col,(label,val,var) in zip(mt,[
             ("GMV atual",       fmt_brl(tend.get("gmv_atual")),    tend.get("var_gmv_pct")),
             ("Pedidos",         str(safe_int(tend.get("pedidos_atual"))), tend.get("var_pedidos_pct")),
