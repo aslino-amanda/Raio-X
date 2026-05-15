@@ -834,20 +834,93 @@ if st.session_state.rx_loja_id:
     if not df_ch.empty:
         receita_risco = safe_float(df_ch["receita_historico"].sum()) if "receita_historico" in df_ch.columns else 0
         st.markdown(f"#### ⚠️ Clientes que sumiram — {len(df_ch)} identificados")
+
         st.markdown(
             f"<div style='background:#FEF2F2;border-left:4px solid #E24B4A;border-radius:8px;"
-            f"padding:.8rem 1rem;margin-bottom:.8rem'>"
+            f"padding:.8rem 1rem;margin-bottom:1rem'>"
             f"<div style='font-size:14px;font-weight:700;color:#991B1B'>"
             f"💰 {fmt_brl(receita_risco)} em receita histórica em risco</div>"
             f"<div style='font-size:12px;color:#666;margin-top:3px'>"
-            f"Clientes ativos no período de referência que pararam de comprar.</div>"
+            f"Clientes que compravam regularmente e pararam. Abaixo estão os mais importantes — priorize o contato.</div>"
             f"</div>", unsafe_allow_html=True)
-        cols_ch = [c for c in ["cliente_nome","cliente_email","total_pedidos",
-                                "receita_historico","ticket_medio","ultimo_pedido"] if c in df_ch.columns]
-        df_show = df_ch[cols_ch].copy()
-        if "receita_historico" in df_show: df_show["receita_historico"] = df_show["receita_historico"].apply(fmt_brl)
-        if "ticket_medio"      in df_show: df_show["ticket_medio"]      = df_show["ticket_medio"].apply(fmt_brl)
-        st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+        def _prioridade(receita, ticket, dias_ausente):
+            if receita >= 20000 or ticket >= 2000:
+                return "🔴 Prioridade 1", "#FEF2F2", "#991B1B", "Cliente VIP — contato direto esta semana (WhatsApp ou telefone)"
+            elif receita >= 8000 or ticket >= 500:
+                return "🟡 Prioridade 2", "#FFFBEB", "#92400E", "Cliente recorrente de valor — e-mail personalizado ou ligação"
+            else:
+                return "⚪ Prioridade 3", "#F5F2EE", "#5A7A78", "Cliente regular — incluir em campanha de reativação"
+
+        def _perfil(email, ticket):
+            email = str(email or "").lower()
+            dominios_corp = [".com.br", ".ind.br", ".org.br", ".gov.br"]
+            emails_corp   = ["compras@","financeiro@","suprimentos@","vendas@","comercial@","contato@","sac@"]
+            is_corp = any(d in email for d in dominios_corp) or any(e in email for e in emails_corp)
+            if is_corp and ticket >= 1000:
+                return "🏢 B2B — comprador corporativo. Abordagem comercial direta, mencionar histórico de pedidos."
+            elif is_corp:
+                return "🏢 B2B — empresa. Contato pelo e-mail corporativo com proposta de reativação."
+            elif ticket >= 500:
+                return "⭐ Consumidor premium. Oferecer condição especial ou frete grátis."
+            else:
+                return "👤 Consumidor regular. Incluir em campanha de reativação com desconto."
+
+        for _, row in df_ch.head(10).iterrows():
+            nome      = str(row.get("cliente_nome","—"))
+            email_c   = str(row.get("cliente_email","—"))
+            ped_tot   = safe_int(row.get("total_pedidos",0))
+            rec_hist  = safe_float(row.get("receita_historico",0))
+            tick      = safe_float(row.get("ticket_medio",0))
+            ult_ped   = str(row.get("ultimo_pedido","—"))[:10]
+
+            # Dias ausente
+            try:
+                from datetime import datetime as _dt2
+                dias_aus = (_dt2.today() - _dt2.strptime(ult_ped, "%Y-%m-%d")).days
+                dias_str = f"{dias_aus} dias sem comprar"
+            except:
+                dias_aus = 999
+                dias_str = "data desconhecida"
+
+            badge, bg_p, cor_p, acao_p = _prioridade(rec_hist, tick, dias_aus)
+            perfil_txt = _perfil(email_c, tick)
+
+            st.markdown(
+                f"<div style='background:white;border-radius:12px;padding:1rem 1.2rem;margin-bottom:.6rem;"
+                f"border-left:4px solid {'#E24B4A' if 'Prioridade 1' in badge else '#F59E0B' if 'Prioridade 2' in badge else '#C8C0B4'}'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem'>"
+                f"<div>"
+                f"<div style='font-size:14px;font-weight:700;color:#1A2E2B'>{nome}</div>"
+                f"<div style='font-size:12px;color:#888;margin-top:2px'>{email_c}</div>"
+                f"</div>"
+                f"<span style='background:{bg_p};color:{cor_p};padding:3px 10px;border-radius:20px;"
+                f"font-size:11px;font-weight:700;white-space:nowrap'>{badge}</span>"
+                f"</div>"
+                f"<div style='display:flex;gap:1.5rem;margin-top:.6rem;flex-wrap:wrap'>"
+                f"<div><div style='font-size:10px;color:#AAA;text-transform:uppercase'>Pedidos histórico</div>"
+                f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{ped_tot}</div></div>"
+                f"<div><div style='font-size:10px;color:#AAA;text-transform:uppercase'>Receita histórica</div>"
+                f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(rec_hist)}</div></div>"
+                f"<div><div style='font-size:10px;color:#AAA;text-transform:uppercase'>Ticket médio</div>"
+                f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(tick)}</div></div>"
+                f"<div><div style='font-size:10px;color:#AAA;text-transform:uppercase'>Último pedido</div>"
+                f"<div style='font-size:13px;font-weight:600;color:#E24B4A'>{ult_ped} · {dias_str}</div></div>"
+                f"</div>"
+                f"<div style='margin-top:.6rem;font-size:12px;color:#555;background:#F8F5F0;"
+                f"border-radius:6px;padding:.4rem .8rem'>"
+                f"💬 {perfil_txt}<br>→ <strong>{acao_p}</strong>"
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True)
+
+        if len(df_ch) > 10:
+            with st.expander(f"Ver mais {len(df_ch)-10} clientes", expanded=False):
+                df_show = df_ch[10:].copy()
+                if "receita_historico" in df_show: df_show["receita_historico"] = df_show["receita_historico"].apply(fmt_brl)
+                if "ticket_medio"      in df_show: df_show["ticket_medio"]      = df_show["ticket_medio"].apply(fmt_brl)
+                st.dataframe(df_show[["cliente_nome","cliente_email","total_pedidos","receita_historico","ticket_medio","ultimo_pedido"]],
+                             use_container_width=True, hide_index=True)
         st.divider()
 
     # ── AÇÃO RECOMENDADA ──────────────────────────────────────────────────────
