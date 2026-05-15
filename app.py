@@ -13,6 +13,19 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 [data-testid="stAppViewContainer"]{background:#0D4F4A;}
 footer{display:none;}
 .stPageLink a {
+    display:none!important;
+}
+.stButton>button {
+    background:#D4F53C!important;color:#0D4F4A!important;
+    font-weight:700!important;font-size:14px!important;
+    border-radius:10px!important;border:none!important;
+    padding:.7rem 1rem!important;width:100%!important;
+}
+.stButton>button:hover {
+    background:#C4E030!important;
+}
+/* fake old rule kept */
+.__old_stPageLink a {
     display:block!important;width:100%!important;
     background:#D4F53C!important;color:#0D4F4A!important;
     font-weight:700!important;font-size:14px!important;
@@ -49,11 +62,12 @@ try:
         SELECT COUNT(*) FROM analytics_manual.mv_loja
         WHERE situacao_loja='ativa'
           AND data_cadastro_loja >= current_date - interval '60' day
+          AND data_cadastro_loja <= current_date
           AND (data_primeira_config_pagamento IS NULL
             OR data_primeira_config_logistica IS NULL
             OR data_primeira_config_produto   IS NULL
-            OR data_primeira_venda            IS NULL
-            OR coalesce(vlr_gmv_ultimos_30d,0) = 0)
+            OR (data_primeira_venda IS NULL AND data_cadastro_loja <= current_date - interval '3' day)
+            OR (coalesce(vlr_gmv_ultimos_30d,0) = 0 AND data_primeira_venda IS NOT NULL))
     """)
     n_onb = int(rows_onb[0][0]) if rows_onb else 0
 except Exception:
@@ -90,7 +104,9 @@ with col1:
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.page_link(onb_path, label="🚀 Abrir Onboarding", use_container_width=True)
+    if st.button("🚀 Abrir Onboarding", use_container_width=True, key="btn_onb",
+                  type="primary"):
+        st.switch_page(onb_path)
 
 with col2:
     st.markdown(f"""
@@ -108,7 +124,9 @@ with col2:
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.page_link(raio_path, label="⚡ Abrir Raio X", use_container_width=True)
+    if st.button("⚡ Abrir Raio X", use_container_width=True, key="btn_raio",
+                  type="primary"):
+        st.switch_page(raio_path)
 
 # ── Rodapé ────────────────────────────────────────────────────────────────────
 st.markdown("""
