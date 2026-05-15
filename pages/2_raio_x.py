@@ -1068,12 +1068,81 @@ if st.session_state.rx_loja_id:
             st.markdown(f"→ Contatar os **{min(5,len(df_ch))} principais clientes churned** listados acima via WhatsApp ou telefone — não e-mail marketing.")
 
     with tab_lider:
-        lc1,lc2,lc3 = st.columns(3)
-        lc1.metric("GMV 30d", fmt_brl(loja.get("vlr_gmv_ultimos_30d")))
-        lc2.metric("Pedidos 30d", str(safe_int(loja.get("qtd_pedido_ultimos_30d"))))
-        lc3.metric("Var. GMV semanal", f"{safe_float(tend.get('var_gmv_pct')):+.1f}%" if tend and tend.get("gmv_anterior") else "—")
-        if receita_risco := (safe_float(df_ch["receita_historico"].sum()) if not df_ch.empty and "receita_historico" in df_ch.columns else 0):
-            st.metric("Receita em risco (churned)", fmt_brl(receita_risco))
+        gmv_30d_l    = safe_float(loja.get("vlr_gmv_ultimos_30d"))
+        pedidos_30d_l= safe_int(loja.get("qtd_pedido_ultimos_30d"))
+        var_gmv_l    = safe_float(tend.get("var_gmv_pct")) if tend and tend.get("gmv_anterior") else None
+        gmv_risco_l  = safe_float(tend.get("gmv_em_risco")) if tend else 0
+        rec_risco_l  = safe_float(df_ch["receita_historico"].sum()) if not df_ch.empty and "receita_historico" in df_ch.columns else 0
+        n_ch_l       = len(df_ch) if not df_ch.empty else 0
+
+        # Situação executiva
+        if var_gmv_l is not None and var_gmv_l <= -90:
+            sit_titulo = "🔴 Loja parou de vender"
+            sit_desc   = f"Loja com {fmt_brl(gmv_30d_l)} de GMV mensal zerou completamente nas últimas 2 semanas."
+            sit_causa  = "Causa provável: troca ou remoção de gateway de pagamento."
+            sit_acao   = "CS acionar hoje — loja pode retomar em 24h se gateway for reativado."
+            sit_cor    = "#991B1B"; sit_bg = "#FEF2F2"; sit_bd = "#E24B4A"
+        elif var_gmv_l is not None and var_gmv_l <= -50:
+            sit_titulo = "🔴 Colapso de faturamento"
+            sit_desc   = f"GMV caiu {abs(var_gmv_l):.0f}% nas últimas 2 semanas. Loja com histórico sólido em queda acelerada."
+            sit_causa  = f"{n_ch_l} clientes que compravam regularmente pararam. Possível ruptura comercial ou problema de pagamento."
+            sit_acao   = "CS deve acionar os principais clientes esta semana. N2 investigar mix de pagamento."
+            sit_cor    = "#991B1B"; sit_bg = "#FEF2F2"; sit_bd = "#E24B4A"
+        elif var_gmv_l is not None and var_gmv_l <= -20:
+            sit_titulo = "🟠 Declínio acelerado"
+            sit_desc   = f"GMV caiu {abs(var_gmv_l):.0f}% vs período de referência. Tendência preocupante mas ainda reversível."
+            sit_causa  = f"Base de clientes fiéis encolhendo. {n_ch_l} churned identificados."
+            sit_acao   = "Monitorar por 7 dias. Se persistir, acionar CS com diagnóstico completo."
+            sit_cor    = "#92400E"; sit_bg = "#FFFBEB"; sit_bd = "#F59E0B"
+        elif status_real in ("ONBOARDING INCOMPLETO", "NUNCA VENDEU"):
+            sit_titulo = "🟡 Loja travada no onboarding"
+            sit_desc   = f"Loja {status_plano} sem vender. Gargalo de configuração impedindo a primeira venda."
+            sit_causa  = "Configuração incompleta — sem produto, pagamento ou frete ativo."
+            sit_acao   = "CS contatar para destravar. Loja paga travada = MRR em risco."
+            sit_cor    = "#92400E"; sit_bg = "#FFFBEB"; sit_bd = "#F59E0B"
+        else:
+            sit_titulo = "✅ Loja saudável"
+            sit_desc   = f"{fmt_brl(gmv_30d_l)} GMV · {pedidos_30d_l} pedidos nos últimos 30 dias."
+            sit_causa  = "Sem sinais de risco no momento."
+            sit_acao   = "Monitoramento de rotina — sem ação necessária."
+            sit_cor    = "#166534"; sit_bg = "#F0FDF4"; sit_bd = "#86EFAC"
+
+        st.markdown(
+            f"<div style='background:{sit_bg};border-left:4px solid {sit_bd};border-radius:10px;"
+            f"padding:1rem 1.2rem;margin-bottom:1rem'>"
+            f"<div style='font-size:16px;font-weight:700;color:{sit_cor};margin-bottom:.5rem'>{sit_titulo}</div>"
+            f"<div style='font-size:13px;color:#333;line-height:1.7'>"
+            f"{sit_desc}<br>{sit_causa}"
+            f"</div>"
+            f"<div style='margin-top:.8rem;background:white;border-radius:6px;padding:.6rem .8rem;"
+            f"font-size:13px;font-weight:600;color:{sit_cor}'>"
+            f"→ {sit_acao}"
+            f"</div></div>", unsafe_allow_html=True)
+
+        # Impacto financeiro
+        col_imp1, col_imp2, col_imp3 = st.columns(3)
+        with col_imp1:
+            st.markdown(
+                f"<div style='background:white;border-radius:10px;padding:.8rem'>"
+                f"<div style='font-size:11px;color:#888;text-transform:uppercase'>GMV últimos 30d</div>"
+                f"<div style='font-size:20px;font-weight:700;color:#1A2E2B'>{fmt_brl(gmv_30d_l)}</div>"
+                f"<div style='font-size:12px;color:{'#E24B4A' if var_gmv_l and var_gmv_l < 0 else '#1ABCB0'}'>"
+                f"{f'{var_gmv_l:+.1f}% semanal' if var_gmv_l is not None else '—'}</div>"
+                f"</div>", unsafe_allow_html=True)
+        with col_imp2:
+            st.markdown(
+                f"<div style='background:white;border-radius:10px;padding:.8rem'>"
+                f"<div style='font-size:11px;color:#888;text-transform:uppercase'>GMV em risco este mês</div>"
+                f"<div style='font-size:20px;font-weight:700;color:#E24B4A'>{fmt_brl(gmv_risco_l)}</div>"
+                f"<div style='font-size:12px;color:#888'>vs período de referência</div>"
+                f"</div>", unsafe_allow_html=True)
+        with col_imp3:
+            st.markdown(
+                f"<div style='background:white;border-radius:10px;padding:.8rem'>"
+                f"<div style='font-size:11px;color:#888;text-transform:uppercase'>Receita histórica em risco</div>"
+                f"<div style='font-size:20px;font-weight:700;color:#E24B4A'>{fmt_brl(rec_risco_l)}</div>"
+                f"<div style='font-size:12px;color:#888'>{n_ch_l} clientes churned</div>"
+                f"</div>", unsafe_allow_html=True)
 
 
     st.divider()
