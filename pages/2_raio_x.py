@@ -680,7 +680,7 @@ if st.session_state.rx_loja_id:
         df_pag["ticket_medio"] = pd.to_numeric(df_pag["ticket_medio"], errors="coerce").fillna(0)
         df_pag["gmv_estimado"]  = df_pag["total_pedidos"] * df_pag["ticket_medio"]
 
-        tab_ped, tab_gmv = st.tabs(["📦 Pedidos por forma", "💰 GMV por forma"])
+        tab_ped, tab_gmv = st.tabs(["📦 Quantidade de pedidos", "💰 Receita por canal"])
 
         with tab_ped:
             try:
@@ -712,27 +712,122 @@ if st.session_state.rx_loja_id:
 
     # ── NOVOS VS RECORRENTES ──────────────────────────────────────────────────
     if not df_nr.empty:
-        st.markdown("#### 👥 Novos vs. recorrentes")
+        st.markdown("#### 👥 Base de clientes")
         df_nr["receita"] = pd.to_numeric(df_nr.get("receita", df_nr["total_pedidos"]), errors="coerce").fillna(0)
+        df_nr["total_pedidos"] = pd.to_numeric(df_nr["total_pedidos"], errors="coerce").fillna(0)
 
-        # Alerta de queda de recorrentes
-        rec = df_nr[df_nr["tipo_cliente"]=="Recorrente"].sort_values("mes")
-        if len(rec) >= 2:
-            r0 = safe_float(rec["receita"].iloc[0])
-            r1 = safe_float(rec["receita"].iloc[-1])
-            if r0 > 0 and (r1-r0)/r0 <= -0.40:
+        rec  = df_nr[df_nr["tipo_cliente"]=="Recorrente"].sort_values("mes")
+        novo = df_nr[df_nr["tipo_cliente"]=="Novo"].sort_values("mes")
+
+        # Pega últimos 2 meses completos (exclui mês atual parcial)
+        from datetime import date as _date
+        mes_atual = _date.today().strftime("%Y-%m")
+
+        rec_hist  = rec[rec["mes"] != mes_atual]
+        novo_hist = novo[novo["mes"] != mes_atual]
+
+        rec_ult  = rec_hist.iloc[-1]  if len(rec_hist)  >= 1 else None
+        rec_ant  = rec_hist.iloc[-2]  if len(rec_hist)  >= 2 else None
+        novo_ult = novo_hist.iloc[-1] if len(novo_hist) >= 1 else None
+        novo_ant = novo_hist.iloc[-2] if len(novo_hist) >= 2 else None
+
+        col_rec, col_nov = st.columns(2)
+
+        with col_rec:
+            if rec_ult is not None:
+                r1 = safe_float(rec_ult["receita"])
+                p1 = safe_int(rec_ult["total_pedidos"])
+                mes1 = str(rec_ult["mes"])
+                if rec_ant is not None:
+                    r0 = safe_float(rec_ant["receita"])
+                    p0 = safe_int(rec_ant["total_pedidos"])
+                    mes0 = str(rec_ant["mes"])
+                    var_r = (r1-r0)/r0*100 if r0 > 0 else 0
+                    var_p = (p1-p0)/p0*100 if p0 > 0 else 0
+                    cor_r = "#E24B4A" if var_r < -10 else "#F59E0B" if var_r < 0 else "#166534"
+                    sinal = "+" if var_r > 0 else ""
+                    st.markdown(
+                        f"<div style='background:white;border-radius:12px;padding:1rem'>"
+                        f"<div style='font-size:12px;color:#888;text-transform:uppercase;margin-bottom:.5rem'>Clientes recorrentes</div>"
+                        f"<div style='display:flex;justify-content:space-between;align-items:flex-start'>"
+                        f"<div>"
+                        f"<div style='font-size:18px;font-weight:700;color:#1A2E2B'>{fmt_brl(r1)}</div>"
+                        f"<div style='font-size:12px;color:#888'>{p1} pedidos em {mes1}</div>"
+                        f"</div>"
+                        f"<div style='text-align:right'>"
+                        f"<div style='font-size:20px;font-weight:800;color:{cor_r}'>{sinal}{var_r:.0f}%</div>"
+                        f"<div style='font-size:11px;color:#888'>vs {mes0}</div>"
+                        f"</div></div>"
+                        f"<div style='margin-top:.8rem;font-size:12px;color:{'#991B1B' if var_r <= -20 else '#92400E' if var_r < 0 else '#166534'}'>"
+                        + (f"⚠️ Base fidelizada encolhendo — acionar CS antes de agravar" if var_r <= -20
+                           else f"📉 Leve queda de recorrentes — monitorar" if var_r < 0
+                           else f"✅ Recorrentes estáveis ou crescendo")
+                        + f"</div></div>",
+                        unsafe_allow_html=True)
+
+        with col_nov:
+            if novo_ult is not None:
+                n1 = safe_float(novo_ult["receita"])
+                q1 = safe_int(novo_ult["total_pedidos"])
+                mes1 = str(novo_ult["mes"])
+                if novo_ant is not None:
+                    n0 = safe_float(novo_ant["receita"])
+                    q0 = safe_int(novo_ant["total_pedidos"])
+                    mes0 = str(novo_ant["mes"])
+                    var_n = (n1-n0)/n0*100 if n0 > 0 else 0
+                    cor_n = "#E24B4A" if var_n < -20 else "#F59E0B" if var_n < 0 else "#166534"
+                    sinal = "+" if var_n > 0 else ""
+                    st.markdown(
+                        f"<div style='background:white;border-radius:12px;padding:1rem'>"
+                        f"<div style='font-size:12px;color:#888;text-transform:uppercase;margin-bottom:.5rem'>Novos clientes</div>"
+                        f"<div style='display:flex;justify-content:space-between;align-items:flex-start'>"
+                        f"<div>"
+                        f"<div style='font-size:18px;font-weight:700;color:#1A2E2B'>{fmt_brl(n1)}</div>"
+                        f"<div style='font-size:12px;color:#888'>{q1} pedidos em {mes1}</div>"
+                        f"</div>"
+                        f"<div style='text-align:right'>"
+                        f"<div style='font-size:20px;font-weight:800;color:{cor_n}'>{sinal}{var_n:.0f}%</div>"
+                        f"<div style='font-size:11px;color:#888'>vs {mes0}</div>"
+                        f"</div></div>"
+                        f"<div style='margin-top:.8rem;font-size:12px;color:{'#991B1B' if var_n <= -30 else '#92400E' if var_n < 0 else '#166534'}'>"
+                        + (f"🔴 Aquisição caindo forte — sem reposição de base" if var_n <= -30
+                           else f"📉 Menos novos chegando — verificar canais de aquisição" if var_n < 0
+                           else f"✅ Aquisição de novos saudável")
+                        + f"</div></div>",
+                        unsafe_allow_html=True)
+
+        # Diagnóstico consolidado
+        if rec_ant is not None and novo_ant is not None:
+            r_cai  = (safe_float(rec_ult["receita"])  - safe_float(rec_ant["receita"]))  / max(safe_float(rec_ant["receita"]),1)  * 100
+            n_cai  = (safe_float(novo_ult["receita"]) - safe_float(novo_ant["receita"])) / max(safe_float(novo_ant["receita"]),1) * 100
+            if r_cai <= -20 and n_cai <= -20:
+                diag_base = "🔴 Colapso duplo — recorrentes e novos caindo ao mesmo tempo. Risco alto de encolhimento acelerado da base."
+                cor_diag = "#991B1B"; bg_diag = "#FEF2F2"; bd_diag = "#E24B4A"
+            elif r_cai <= -20:
+                diag_base = "⚠️ A loja está perdendo clientes fiéis mais rápido do que conquista novos. Risco de encolhimento de base nos próximos 60 dias."
+                cor_diag = "#92400E"; bg_diag = "#FFFBEB"; bd_diag = "#F59E0B"
+            elif n_cai <= -30:
+                diag_base = "📉 Recorrentes estáveis mas aquisição caindo. Sem renovação de base no médio prazo."
+                cor_diag = "#92400E"; bg_diag = "#FFFBEB"; bd_diag = "#F59E0B"
+            elif r_cai > 5 and n_cai > 5:
+                diag_base = "✅ Base crescendo em novos e recorrentes. Loja saudável."
+                cor_diag = "#166534"; bg_diag = "#F0FDF4"; bd_diag = "#86EFAC"
+            else:
+                diag_base = None
+
+            if diag_base:
                 st.markdown(
-                    f"<div style='background:#FEF2F2;border-left:4px solid #E24B4A;border-radius:8px;"
-                    f"padding:.7rem 1rem;margin-bottom:.8rem'>"
-                    f"<div style='font-size:13px;font-weight:700;color:#991B1B'>"
-                    f"🔴 Receita de recorrentes caiu {abs((r1-r0)/r0)*100:.0f}% no período — sinal de churn B2B</div>"
+                    f"<div style='background:{bg_diag};border-left:4px solid {bd_diag};border-radius:8px;"
+                    f"padding:.8rem 1rem;margin-top:.8rem'>"
+                    f"<div style='font-size:13px;color:{cor_diag}'>{diag_base}</div>"
                     f"</div>", unsafe_allow_html=True)
 
-        st.dataframe(
-            df_nr[["mes","tipo_cliente","total_pedidos","receita","ticket_medio"]].rename(columns={
-                "mes":"Mês","tipo_cliente":"Tipo","total_pedidos":"Pedidos",
-                "receita":"Receita","ticket_medio":"Ticket"}),
-            use_container_width=True, hide_index=True)
+        with st.expander("Ver tabela completa", expanded=False):
+            st.dataframe(
+                df_nr[["mes","tipo_cliente","total_pedidos","receita","ticket_medio"]].rename(columns={
+                    "mes":"Mês","tipo_cliente":"Tipo","total_pedidos":"Pedidos",
+                    "receita":"Receita","ticket_medio":"Ticket"}),
+                use_container_width=True, hide_index=True)
         st.divider()
 
     # ── CLIENTES CHURNED ──────────────────────────────────────────────────────
