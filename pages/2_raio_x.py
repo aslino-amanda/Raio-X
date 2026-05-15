@@ -74,6 +74,55 @@ if not _ok():
     st.error("Metabase não conectado. Verifique .streamlit/secrets.toml")
     st.stop()
 
+
+# ── DEBUG RÁPIDO ──────────────────────────────────────────────────────────────
+with st.expander("🔧 Debug tendência semanal", expanded=False):
+    debug_id = st.number_input("ID da loja para testar", value=233932, step=1)
+    if st.button("Testar queries"):
+        sql_at = f"""
+        SELECT COUNT(DISTINCT A.pedido_venda_id) AS pedidos_atual,
+               ROUND(SUM(A.pedido_venda_valor_total),2) AS gmv_atual
+        FROM pedido_tb_pedido_venda A
+        INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
+        WHERE A.conta_id = {int(debug_id)}
+          AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
+              >= DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 14 DAY
+          AND D.pedido_venda_situacao_nome != 'Pedido Cancelado'
+        """
+        sql_ant = f"""
+        SELECT COUNT(DISTINCT A.pedido_venda_id) AS pedidos_anterior,
+               ROUND(SUM(A.pedido_venda_valor_total),2) AS gmv_anterior
+        FROM pedido_tb_pedido_venda A
+        INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
+        WHERE A.conta_id = {int(debug_id)}
+          AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
+              >= DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 44 DAY
+          AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
+              < DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 30 DAY
+          AND D.pedido_venda_situacao_nome != 'Pedido Cancelado'
+        """
+        try:
+            with st.spinner("Query atual..."):
+                df_at = rodar_sql(sql_at)
+            st.success("✅ Query atual OK")
+            st.dataframe(df_at)
+        except Exception as e:
+            st.error(f"❌ Query atual falhou: {e}")
+        try:
+            with st.spinner("Query anterior..."):
+                df_ant = rodar_sql(sql_ant)
+            st.success("✅ Query anterior OK")
+            st.dataframe(df_ant)
+        except Exception as e:
+            st.error(f"❌ Query anterior falhou: {e}")
+        try:
+            with st.spinner("buscar_tendencia_semanal..."):
+                tend = buscar_tendencia_semanal(int(debug_id))
+            st.success("✅ buscar_tendencia_semanal OK")
+            st.json(tend)
+        except Exception as e:
+            st.error(f"❌ buscar_tendencia_semanal falhou: {e}")
+
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def safe_float(v):
     try:
