@@ -714,8 +714,8 @@ if df_top.empty:
 df_top["var_projetado_pct"] = pd.to_numeric(df_top["var_projetado_pct"], errors="coerce")
 df_risco = df_top[df_top["var_projetado_pct"] <= -20].copy()
 df_risco["gmv_em_risco"] = (
-    pd.to_numeric(df_risco["vlr_gmv_media_2m"], errors="coerce") -
-    pd.to_numeric(df_risco["vlr_gmv_projetado"], errors="coerce")
+    pd.to_numeric(df_risco["gmv_media_2m"], errors="coerce") -
+    pd.to_numeric(df_risco["gmv_projetado"], errors="coerce")
 ).clip(lower=0).round(2)
 
 n_risco   = len(df_risco)
@@ -723,8 +723,8 @@ n_critico = len(df_top[df_top["var_projetado_pct"] <= -50])
 n_atencao = len(df_top[(df_top["var_projetado_pct"] > -50) & (df_top["var_projetado_pct"] <= -20)])
 n_ok      = len(df_top[df_top["var_projetado_pct"] > -20])
 gmv_total_risco = max(0,
-    pd.to_numeric(df_risco["vlr_gmv_media_2m"], errors="coerce").fillna(0).sum() -
-    pd.to_numeric(df_risco["vlr_gmv_projetado"], errors="coerce").fillna(0).sum()
+    pd.to_numeric(df_risco["gmv_media_2m"], errors="coerce").fillna(0).sum() -
+    pd.to_numeric(df_risco["gmv_projetado"], errors="coerce").fillna(0).sum()
 )
 
 # Banner de risco
@@ -784,9 +784,9 @@ for _, r in df_risco.sort_values("var_projetado_pct").iterrows():
             st.markdown(
                 f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;height:100%'>"
                 f"<div style='font-size:11px;color:#888'>Média 2m (d1-{dia_atual})</div>"
-                f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(r['vlr_gmv_media_2m'])}</div>"
+                f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(r['gmv_media_2m'])}</div>"
                 f"<div style='font-size:11px;color:#888;margin-top:4px'>Projetado este mês</div>"
-                f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(r['vlr_gmv_projetado'])}</div>"
+                f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(r['gmv_projetado'])}</div>"
                 f"<div style='font-size:12px;font-weight:700;color:{cor_v};margin-top:4px'>"
                 f"{var_v:.0f}% · {fmt_brl(gmv_r)} em risco</div>"
                 f"</div>", unsafe_allow_html=True)
@@ -807,7 +807,7 @@ for _, r in df_risco.sort_values("var_projetado_pct").iterrows():
 
 st.divider()
 st.download_button("⬇️ Exportar CSV",
-    data=df_risco[["conta_id","nome_loja","segmento","vlr_gmv_media_2m",
-                   "vlr_gmv_projetado","var_projetado_pct","gmv_em_risco"]].to_csv(index=False).encode("utf-8"),
+    data=df_risco[["conta_id","nome_loja","segmento","gmv_media_2m",
+                   "gmv_projetado","var_projetado_pct","gmv_em_risco"]].to_csv(index=False).encode("utf-8"),
     file_name=f"top_sellers_risco_{date.today().strftime('%Y%m%d')}.csv",
     mime="text/csv")
