@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 
 st.set_page_config(page_title="X Li", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
@@ -19,15 +20,12 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Descobre os arquivos de página disponíveis
-import os, glob
-pages_dir = os.path.join(os.path.dirname(__file__), "pages")
-page_files = sorted(glob.glob(os.path.join(pages_dir, "*.py")))
+# Descobre paths absolutos
+base = os.path.dirname(os.path.abspath(__file__))
+onb_path  = os.path.join(base, "pages", "1_Onboarding.py")
+raio_path = os.path.join(base, "pages", "2_raio_x.py")
 
 col1, col2 = st.columns(2)
-
-onboarding_page = next((f for f in page_files if "nboarding" in f or "nboarding" in f.lower()), None)
-raiox_page      = next((f for f in page_files if "aio" in f.lower()), None)
 
 with col1:
     st.markdown("""
@@ -39,11 +37,7 @@ with col1:
         </div>
     </div>
     """, unsafe_allow_html=True)
-    if onboarding_page:
-        rel = os.path.relpath(onboarding_page, os.path.dirname(__file__))
-        st.page_link(rel, label="🚀 Abrir Onboarding", use_container_width=True)
-    else:
-        st.warning("Página de Onboarding não encontrada.")
+    st.page_link(onb_path, label="🚀 Abrir Onboarding", use_container_width=True)
 
 with col2:
     st.markdown("""
@@ -55,13 +49,4 @@ with col2:
         </div>
     </div>
     """, unsafe_allow_html=True)
-    if raiox_page:
-        rel = os.path.relpath(raiox_page, os.path.dirname(__file__))
-        st.page_link(rel, label="⚡ Abrir Raio X", use_container_width=True)
-    else:
-        st.warning("Página Raio X não encontrada.")
-
-# Debug — mostra quais arquivos encontrou
-with st.expander("🔧 Debug — arquivos encontrados", expanded=False):
-    st.write("pages_dir:", pages_dir)
-    st.write("arquivos:", page_files)
+    st.page_link(raio_path, label="⚡ Abrir Raio X", use_container_width=True)
