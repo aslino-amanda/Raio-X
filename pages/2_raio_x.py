@@ -677,14 +677,37 @@ if st.session_state.rx_loja_id:
                     f"<div style='font-size:13px;font-weight:700;color:#991B1B'>⚠️ Forma crítica removida: {', '.join(criticas)}</div>"
                     f"</div>", unsafe_allow_html=True)
 
-        try:
-            piv = df_pag.pivot_table(index="forma_pagamento", columns="mes",
-                                     values="total_pedidos", aggfunc="sum", fill_value=0).reset_index()
-            piv.columns.name = None
-            st.dataframe(piv, use_container_width=True, hide_index=True)
-        except Exception:
-            st.dataframe(df_pag[["mes","forma_pagamento","total_pedidos","ticket_medio"]],
-                         use_container_width=True, hide_index=True)
+        df_pag["ticket_medio"] = pd.to_numeric(df_pag["ticket_medio"], errors="coerce").fillna(0)
+        df_pag["gmv_estimado"]  = df_pag["total_pedidos"] * df_pag["ticket_medio"]
+
+        tab_ped, tab_gmv = st.tabs(["📦 Pedidos por forma", "💰 GMV por forma"])
+
+        with tab_ped:
+            try:
+                piv_ped = df_pag.pivot_table(index="forma_pagamento", columns="mes",
+                                             values="total_pedidos", aggfunc="sum", fill_value=0).reset_index()
+                piv_ped.columns.name = None
+                # Formata como inteiros
+                for c in piv_ped.columns[1:]:
+                    piv_ped[c] = piv_ped[c].astype(int)
+                st.dataframe(piv_ped, use_container_width=True, hide_index=True)
+            except Exception:
+                st.dataframe(df_pag[["mes","forma_pagamento","total_pedidos"]],
+                             use_container_width=True, hide_index=True)
+
+        with tab_gmv:
+            try:
+                piv_gmv = df_pag.pivot_table(index="forma_pagamento", columns="mes",
+                                             values="gmv_estimado", aggfunc="sum", fill_value=0).reset_index()
+                piv_gmv.columns.name = None
+                # Formata como BRL
+                for c in piv_gmv.columns[1:]:
+                    piv_gmv[c] = piv_gmv[c].apply(lambda v: fmt_brl(v) if v > 0 else "—")
+                st.dataframe(piv_gmv, use_container_width=True, hide_index=True)
+                st.caption("GMV estimado = pedidos × ticket médio por forma de pagamento")
+            except Exception:
+                st.dataframe(df_pag[["mes","forma_pagamento","gmv_estimado"]],
+                             use_container_width=True, hide_index=True)
         st.divider()
 
     # ── NOVOS VS RECORRENTES ──────────────────────────────────────────────────
