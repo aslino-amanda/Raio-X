@@ -532,6 +532,7 @@ if st.session_state.rx_loja_id:
             except:
                 return str(s)[:10]
         st.caption(f"Atual: {_fmt_dt(tend.get('atual_de',''))} → {_fmt_dt(tend.get('atual_ate',''))} | Ref: {_fmt_dt(tend.get('ref_de',''))} → {_fmt_dt(tend.get('ref_ate',''))}")
+        mt = st.columns(4)
         for col,(label,val,var) in zip(mt,[
             ("GMV atual",       fmt_brl(tend.get("gmv_atual")),    tend.get("var_gmv_pct")),
             ("Pedidos",         str(safe_int(tend.get("pedidos_atual"))), tend.get("var_pedidos_pct")),
