@@ -700,8 +700,208 @@ if st.session_state.rx_loja_id:
         if receita_risco := (safe_float(df_ch["receita_historico"].sum()) if not df_ch.empty and "receita_historico" in df_ch.columns else 0):
             st.metric("Receita em risco (churned)", fmt_brl(receita_risco))
 
+
+    st.divider()
+
+    # ── IA + HUBSPOT ──────────────────────────────────────────────────────────
+    st.markdown("#### 🤖 Diagnóstico com IA + HubSpot")
+
+    # Monta contexto para o LLM
+    def montar_contexto(loja, tend, df_ch, df_nr, status_real):
+        nome   = loja.get("nome_loja","—")
+        seg    = loja.get("segmento_loja","—")
+        email  = loja.get("email_loja","—")
+        gmv30  = fmt_brl(loja.get("vlr_gmv_ultimos_30d",0))
+        ped30  = safe_int(loja.get("qtd_pedido_ultimos_30d",0))
+
+        ctx = f"""LOJA: {nome} (ID {loja.get('loja_id','—')})
+SEGMENTO: {seg} | STATUS: {status_real} | E-MAIL: {email}
+GMV ÚLTIMOS 30D: {gmv30} | PEDIDOS: {ped30}
+"""
+        if tend and tend.get("gmv_anterior"):
+            ctx += f"""
+TENDÊNCIA SEMANAL (últimas 2 semanas vs mesmo período 30 dias atrás):
+- GMV atual: {fmt_brl(tend.get('gmv_atual'))} ({tend.get('var_gmv_pct',0):+.1f}%)
+- Pedidos: {safe_int(tend.get('pedidos_atual'))} ({tend.get('var_pedidos_pct',0):+.1f}%)
+- Ticket médio: {fmt_brl(tend.get('ticket_atual'))} ({tend.get('var_ticket_pct',0):+.1f}%)
+- GMV em risco: {fmt_brl(tend.get('gmv_em_risco',0))}
+"""
+        if not df_ch.empty and "receita_historico" in df_ch.columns:
+            receita_ch = safe_float(df_ch["receita_historico"].sum())
+            top5 = df_ch.head(5)
+            clientes_str = "\n".join([
+                f"  - {r.get('cliente_nome','—')} ({r.get('cliente_email','—')}): {fmt_brl(r.get('receita_historico',0))} histórico, último pedido {str(r.get('ultimo_pedido','—'))[:10]}"
+                for _, r in top5.iterrows()
+            ])
+            ctx += f"""
+CLIENTES CHURNED: {len(df_ch)} identificados | {fmt_brl(receita_ch)} em receita histórica em risco
+TOP 5 CHURNED:
+{clientes_str}
+"""
+        if not df_nr.empty:
+            rec = df_nr[df_nr["tipo_cliente"]=="Recorrente"].sort_values("mes")
+            if len(rec) >= 2:
+                r0 = safe_float(rec["receita"].iloc[0])
+                r1 = safe_float(rec["receita"].iloc[-1])
+                if r0 > 0:
+                    queda_rec = (r1-r0)/r0*100
+                    ctx += f"""
+RECORRENTES: receita foi de {fmt_brl(r0)} para {fmt_brl(r1)} ({queda_rec:+.1f}% no período)
+"""
+        return ctx
+
+    def chamar_ia(contexto, tipo="diagnostico"):
+        try:
+            import requests, os
+            proxy_url = st.secrets.get("litellm", {}).get("url", "http://litellm-proxy.devqa.awsli.com.br")
+            api_key   = st.secrets.get("litellm", {}).get("api_key", "")
+
+            if tipo == "diagnostico":
+                system = """Você é um analista especialista em e-commerce e retenção de lojistas da Loja Integrada.
+Sua tarefa é analisar os dados de uma loja e gerar um diagnóstico narrativo claro e objetivo.
+Responda sempre em português brasileiro, de forma direta e profissional.
+Estruture a resposta em: 1) O que está acontecendo, 2) Causas identificadas, 3) Recomendações imediatas."""
+                prompt = f"""Com base nos dados abaixo, gere um diagnóstico completo desta loja:
+
+{contexto}
+
+Seja específico com os números. Identifique se o problema é churn B2B, queda de tráfego, mix de pagamento ou outro fator.
+Termine com 3 ações concretas priorizadas por urgência."""
+
+            else:  # email
+                system = """Você é um especialista em Customer Success da Loja Integrada.
+Escreva e-mails profissionais, empáticos e orientados a solução.
+O e-mail é para o LOJISTA — deve ser em tom consultivo, não alarmista.
+Sempre em português brasileiro."""
+                prompt = f"""Com base nos dados abaixo, escreva um e-mail personalizado para o lojista.
+
+{contexto}
+
+O e-mail deve:
+- Ter assunto impactante mas não alarmista
+- Mostrar que identificamos o problema proativamente
+- Explicar o que está acontecendo em linguagem simples (sem jargões técnicos)
+- Propor uma ação concreta (ex: agendar uma call, oferecer suporte)
+- Tom: consultivo, parceiro, não vendedor
+
+Formato: ASSUNTO: [assunto]\n\n[corpo do e-mail]"""
+
+            resp = requests.post(
+                f"{proxy_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "groq-gptoss-120b",
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "max_tokens": 1500,
+                    "temperature": 0.7,
+                },
+                timeout=60
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            return f"[SIMULAÇÃO — conectar LiteLLM para resposta real]\n\nDiagnóstico simulado para {loja.get('nome_loja','a loja')}:\n\nA loja apresenta queda de {safe_float(tend.get('var_gmv_pct',0) if tend else 0):+.1f}% no GMV semanal com {len(df_ch)} clientes B2B churned. Ação imediata: contato direto com os 5 maiores churned via WhatsApp."
+
+    ctx = montar_contexto(loja, tend, df_ch, df_nr, status_real)
+
+    col_ia1, col_ia2 = st.columns(2)
+
+    with col_ia1:
+        st.markdown("""
+        <div style='background:white;border-radius:12px;padding:1rem;margin-bottom:.5rem'>
+            <div style='font-size:13px;font-weight:700;color:#1A2E2B;margin-bottom:.3rem'>🤖 Diagnóstico narrativo</div>
+            <div style='font-size:12px;color:#5A7A78;line-height:1.6'>
+                O gptoss-120b analisa todos os dados carregados e gera um diagnóstico
+                em linguagem natural — igual ao estudo feito manualmente, mas automático.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🤖 Gerar diagnóstico com IA", use_container_width=True, key="btn_diag_ia"):
+            with st.spinner("Analisando dados com IA..."):
+                resultado = chamar_ia(ctx, "diagnostico")
+            st.session_state["ia_diagnostico"] = resultado
+
+        if "ia_diagnostico" in st.session_state:
+            st.markdown(
+                f"<div style='background:#F8F5F0;border:1px solid #E8E4DE;border-radius:10px;"
+                f"padding:1rem;font-size:13px;line-height:1.7;color:#1A2E2B;margin-top:.5rem'>"
+                f"{st.session_state['ia_diagnostico'].replace(chr(10), '<br>')}"
+                f"</div>", unsafe_allow_html=True)
+
+    with col_ia2:
+        st.markdown("""
+        <div style='background:white;border-radius:12px;padding:1rem;margin-bottom:.5rem'>
+            <div style='font-size:13px;font-weight:700;color:#1A2E2B;margin-bottom:.3rem'>✉️ E-mail personalizado</div>
+            <div style='font-size:12px;color:#5A7A78;line-height:1.6'>
+                Gera um e-mail consultivo para o lojista explicando o que detectamos
+                e propondo uma ação — pronto para o CS disparar.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("✉️ Gerar e-mail com IA", use_container_width=True, key="btn_email_ia"):
+            with st.spinner("Redigindo e-mail..."):
+                email_ia = chamar_ia(ctx, "email")
+            st.session_state["ia_email"] = email_ia
+
+        if "ia_email" in st.session_state:
+            email_txt = st.session_state["ia_email"]
+            # Extrai assunto e corpo
+            assunto, corpo = "Identificamos algo importante na sua loja", email_txt
+            if "ASSUNTO:" in email_txt:
+                partes = email_txt.split("\n\n", 1)
+                assunto = partes[0].replace("ASSUNTO:","").strip()
+                corpo   = partes[1] if len(partes) > 1 else email_txt
+
+            st.markdown(
+                f"<div style='background:#F8F5F0;border:1px solid #E8E4DE;border-radius:10px;padding:1rem;margin-top:.5rem'>"
+                f"<div style='font-size:11px;color:#888;border-bottom:1px solid #E8E4DE;padding-bottom:6px;margin-bottom:10px'>"
+                f"<strong>Para:</strong> {loja.get('email_loja','—')} &nbsp;·&nbsp; <strong>Assunto:</strong> {assunto}</div>"
+                f"<div style='font-size:13px;line-height:1.7;color:#1A2E2B'>{corpo.replace(chr(10), '<br>')}</div>"
+                f"</div>", unsafe_allow_html=True)
+
+            # HubSpot — criar tarefa
+            st.markdown("<div style='margin-top:.8rem'></div>", unsafe_allow_html=True)
+            col_hs1, col_hs2 = st.columns(2)
+            with col_hs1:
+                if st.button("📤 Criar tarefa no HubSpot", use_container_width=True, key="btn_hs_task"):
+                    hs_token = st.secrets.get("hubspot", {}).get("token", "")
+                    if not hs_token:
+                        st.warning("⚠️ HubSpot não configurado ainda — adicionar token nos secrets para ativar.")
+                        st.info("Quando integrado, vai criar automaticamente:\n→ Tarefa para o CS com briefing\n→ Nota no contato da loja\n→ Deal atualizado com diagnóstico")
+                    else:
+                        try:
+                            import requests as _req
+                            payload = {
+                                "engagement": {"active": True, "type": "TASK"},
+                                "associations": {"contactIds": [], "companyIds": [], "dealIds": []},
+                                "metadata": {
+                                    "body": f"X Li detectou queda crítica.\n\nLoja: {loja.get('nome_loja')} (ID {loja.get('loja_id')})\nGMV semanal: {safe_float(tend.get('var_gmv_pct',0) if tend else 0):+.1f}%\nChurned: {len(df_ch)} clientes\n\nDiagnóstico:\n{st.session_state.get('ia_diagnostico','—')[:500]}",
+                                    "subject": f"[X Li] Queda crítica — {loja.get('nome_loja')} — ação urgente",
+                                    "status": "NOT_STARTED",
+                                    "forObjectType": "CONTACT",
+                                }
+                            }
+                            r = _req.post(
+                                "https://api.hubapi.com/engagements/v1/engagements",
+                                headers={"Authorization": f"Bearer {hs_token}", "Content-Type": "application/json"},
+                                json=payload, timeout=15
+                            )
+                            if r.status_code in (200, 201):
+                                st.success("✅ Tarefa criada no HubSpot!")
+                            else:
+                                st.error(f"Erro HubSpot: {r.status_code}")
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+            with col_hs2:
+                if st.button("📋 Copiar e-mail", use_container_width=True, key="btn_copy_email"):
+                    st.code(f"Assunto: {assunto}\n\n{corpo}", language=None)
+
     st.markdown("<div style='height:2rem'></div>", unsafe_allow_html=True)
     st.stop()
+
 
 
 # ════════════════════════════════════════════════════════════════════════════════
