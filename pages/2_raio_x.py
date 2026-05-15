@@ -542,15 +542,18 @@ if st.session_state.rx_loja_id:
     else:
         cfg_emoji, cfg_titulo, cfg_msg, cfg_cor, cfg_bg = "🟡", "Sem frete configurado", "Entrega não disponível — pode estar perdendo vendas", "#92400E", "#FFFBEB"
 
-    # Tráfego
-    if visitas >= 1000:
-        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "✅", f"{visitas:,} visitas/mês", "Tráfego saudável", "#166534", "#F0FDF4"
-    elif visitas >= 100:
-        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🟡", f"{visitas:,} visitas/mês", "Tráfego baixo — potencial de crescimento", "#92400E", "#FFFBEB"
-    elif visitas > 0:
-        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🔴", f"{visitas} visitas/mês", "Loja quase invisível — problema de divulgação", "#991B1B", "#FEF2F2"
+    # Tráfego — taxa de conversão (visitas → pedidos)
+    taxa_conv = round(pedidos / visitas * 100, 2) if visitas > 0 else 0
+    if visitas == 0:
+        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🔴", "Loja invisível", "Zero visitas este mês — não está sendo encontrada", "#991B1B", "#FEF2F2"
+    elif pedidos == 0:
+        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🔴", f"Visitantes não compram", f"{visitas:,} visitas e nenhuma venda — problema de conversão", "#991B1B", "#FEF2F2"
+    elif taxa_conv >= 1.0:
+        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "✅", f"{taxa_conv:.1f}% de conversão", f"{pedidos:,} vendas em {visitas:,} visitas", "#166534", "#F0FDF4"
+    elif taxa_conv >= 0.3:
+        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🟡", f"{taxa_conv:.1f}% de conversão", f"{pedidos:,} vendas em {visitas:,} visitas — abaixo do esperado", "#92400E", "#FFFBEB"
     else:
-        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🔴", "Zero visitas", "Loja sem tráfego — não está sendo encontrada", "#991B1B", "#FEF2F2"
+        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🔴", f"{taxa_conv:.2f}% de conversão", f"{pedidos:,} vendas em {visitas:,} visitas — taxa crítica", "#991B1B", "#FEF2F2"
 
     # Conversão
     if pedidos >= 50:
