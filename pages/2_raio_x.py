@@ -75,54 +75,6 @@ if not _ok():
     st.stop()
 
 
-# ── DEBUG RÁPIDO ──────────────────────────────────────────────────────────────
-with st.expander("🔧 Debug tendência semanal", expanded=False):
-    debug_id = st.number_input("ID da loja para testar", value=233932, step=1)
-    if st.button("Testar queries"):
-        sql_at = f"""
-        SELECT COUNT(DISTINCT A.pedido_venda_id) AS pedidos_atual,
-               ROUND(SUM(A.pedido_venda_valor_total),2) AS gmv_atual
-        FROM lojaintegrada.pedido_tb_pedido_venda A
-        INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
-        WHERE A.conta_id = {int(debug_id)}
-          AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
-              >= DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 14 DAY
-          AND D.pedido_venda_situacao_nome != 'Pedido Cancelado'
-        """
-        sql_ant = f"""
-        SELECT COUNT(DISTINCT A.pedido_venda_id) AS pedidos_anterior,
-               ROUND(SUM(A.pedido_venda_valor_total),2) AS gmv_anterior
-        FROM lojaintegrada.pedido_tb_pedido_venda A
-        INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
-        WHERE A.conta_id = {int(debug_id)}
-          AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
-              >= DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 44 DAY
-          AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
-              < DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 30 DAY
-          AND D.pedido_venda_situacao_nome != 'Pedido Cancelado'
-        """
-        try:
-            with st.spinner("Query atual..."):
-                df_at = rodar_sql(sql_at)
-            st.success("✅ Query atual OK")
-            st.dataframe(df_at)
-        except Exception as e:
-            st.error(f"❌ Query atual falhou: {e}")
-        try:
-            with st.spinner("Query anterior..."):
-                df_ant = rodar_sql(sql_ant)
-            st.success("✅ Query anterior OK")
-            st.dataframe(df_ant)
-        except Exception as e:
-            st.error(f"❌ Query anterior falhou: {e}")
-        try:
-            with st.spinner("buscar_tendencia_semanal..."):
-                tend = buscar_tendencia_semanal(int(debug_id))
-            st.success("✅ buscar_tendencia_semanal OK")
-            st.json(tend)
-        except Exception as e:
-            st.error(f"❌ buscar_tendencia_semanal falhou: {e}")
-
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def safe_float(v):
     try:
@@ -573,7 +525,12 @@ if st.session_state.rx_loja_id:
     # ── TENDÊNCIA SEMANAL ─────────────────────────────────────────────────────
     st.markdown("#### 📉 Tendência de GMV — últimas 2 semanas vs mesmo período 30 dias atrás")
     if tend and tend.get("gmv_anterior"):
-        st.caption(f"Atual: {tend.get('atual_de','')} → {tend.get('atual_ate','')} | Ref: {tend.get('ref_de','')} → {tend.get('ref_ate','')}")
+        def _fmt_dt(s):
+        try:
+            from datetime import datetime
+            return datetime.strptime(str(s)[:10], '%Y-%m-%d').strftime('%d/%m/%Y')
+        except: return str(s)[:10]
+    st.caption(f"Atual: {_fmt_dt(tend.get('atual_de',''))} → {_fmt_dt(tend.get('atual_ate',''))} | Ref: {_fmt_dt(tend.get('ref_de',''))} → {_fmt_dt(tend.get('ref_ate',''))}")
         mt = st.columns(4)
         for col,(label,val,var) in zip(mt,[
             ("GMV atual",       fmt_brl(tend.get("gmv_atual")),    tend.get("var_gmv_pct")),
