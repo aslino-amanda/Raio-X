@@ -82,8 +82,8 @@ with st.expander("🔧 Debug tendência semanal", expanded=False):
         sql_at = f"""
         SELECT COUNT(DISTINCT A.pedido_venda_id) AS pedidos_atual,
                ROUND(SUM(A.pedido_venda_valor_total),2) AS gmv_atual
-        FROM pedido_tb_pedido_venda A
-        INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
+        FROM lojaintegrada.pedido_tb_pedido_venda A
+        INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
         WHERE A.conta_id = {int(debug_id)}
           AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
               >= DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 14 DAY
@@ -92,8 +92,8 @@ with st.expander("🔧 Debug tendência semanal", expanded=False):
         sql_ant = f"""
         SELECT COUNT(DISTINCT A.pedido_venda_id) AS pedidos_anterior,
                ROUND(SUM(A.pedido_venda_valor_total),2) AS gmv_anterior
-        FROM pedido_tb_pedido_venda A
-        INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
+        FROM lojaintegrada.pedido_tb_pedido_venda A
+        INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
         WHERE A.conta_id = {int(debug_id)}
           AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
               >= DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 44 DAY
@@ -217,8 +217,8 @@ def buscar_tendencia_semanal(conta_id: int) -> dict:
         ROUND(AVG(A.pedido_venda_valor_total), 2) AS ticket_atual,
         MIN(DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))) AS atual_de,
         MAX(DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))) AS atual_ate
-    FROM pedido_tb_pedido_venda A
-    INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id = D.pedido_venda_situacao_id
+    FROM lojaintegrada.pedido_tb_pedido_venda A
+    INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id = D.pedido_venda_situacao_id
     WHERE A.conta_id = {conta_id}
       AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
           >= DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 14 DAY
@@ -233,8 +233,8 @@ def buscar_tendencia_semanal(conta_id: int) -> dict:
         ROUND(AVG(A.pedido_venda_valor_total), 2) AS ticket_anterior,
         MIN(DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))) AS ref_de,
         MAX(DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))) AS ref_ate
-    FROM pedido_tb_pedido_venda A
-    INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id = D.pedido_venda_situacao_id
+    FROM lojaintegrada.pedido_tb_pedido_venda A
+    INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id = D.pedido_venda_situacao_id
     WHERE A.conta_id = {conta_id}
       AND DATE(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'))
           >= DATE(CONVERT_TZ(NOW(),'+00:00','America/Sao_Paulo')) - INTERVAL 44 DAY
@@ -268,8 +268,8 @@ def buscar_historico_mensal(conta_id: int) -> list:
         SELECT
             DATE_FORMAT(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo'),'%Y-%m') AS mes,
             ROUND(SUM(A.pedido_venda_valor_total),2) AS gmv
-        FROM pedido_tb_pedido_venda A
-        INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
+        FROM lojaintegrada.pedido_tb_pedido_venda A
+        INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
         WHERE A.conta_id={conta_id}
           AND CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo')
               >= DATE_FORMAT(DATE_SUB(NOW(),INTERVAL 6 MONTH),'%Y-%m-01')
@@ -287,10 +287,10 @@ def buscar_mix_pagamento(conta_id: int) -> pd.DataFrame:
             F.pagamento_nome AS forma_pagamento,
             COUNT(DISTINCT A.pedido_venda_id) AS total_pedidos,
             ROUND(AVG(A.pedido_venda_valor_total),2) AS ticket_medio
-        FROM pedido_tb_pedido_venda A
-        INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
-        INNER JOIN pedido_tb_pedido_venda_pagamento E ON A.pedido_venda_id=E.pedido_venda_id
-        INNER JOIN configuracao_tb_pagamento F ON E.pagamento_id=F.pagamento_id
+        FROM lojaintegrada.pedido_tb_pedido_venda A
+        INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
+        INNER JOIN lojaintegrada.pedido_tb_pedido_venda_pagamento E ON A.pedido_venda_id=E.pedido_venda_id
+        INNER JOIN lojaintegrada.configuracao_tb_pagamento F ON E.pagamento_id=F.pagamento_id
         WHERE A.conta_id={conta_id}
           AND CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo')
               >= DATE_FORMAT(DATE_SUB(NOW(),INTERVAL 6 MONTH),'%Y-%m-01')
@@ -310,9 +310,9 @@ def buscar_novos_recorrentes(conta_id: int) -> pd.DataFrame:
             COUNT(DISTINCT A.pedido_venda_id) AS total_pedidos,
             ROUND(SUM(A.pedido_venda_valor_total),2) AS receita,
             ROUND(AVG(A.pedido_venda_valor_total),2) AS ticket_medio
-        FROM pedido_tb_pedido_venda A
-        INNER JOIN cliente_tb_cliente B ON A.cliente_id=B.cliente_id
-        INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
+        FROM lojaintegrada.pedido_tb_pedido_venda A
+        INNER JOIN lojaintegrada.cliente_tb_cliente B ON A.cliente_id=B.cliente_id
+        INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
         WHERE A.conta_id={conta_id}
           AND CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo')
               >= DATE_FORMAT(DATE_SUB(NOW(),INTERVAL 6 MONTH),'%Y-%m-01')
@@ -333,22 +333,22 @@ def buscar_churned(conta_id: int) -> pd.DataFrame:
             ROUND(SUM(A.pedido_venda_valor_total),2) AS receita_historico,
             ROUND(AVG(A.pedido_venda_valor_total),2) AS ticket_medio,
             MAX(CONVERT_TZ(A.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo')) AS ultimo_pedido
-        FROM cliente_tb_cliente B
-        INNER JOIN pedido_tb_pedido_venda A ON B.cliente_id=A.cliente_id
-        INNER JOIN pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
+        FROM lojaintegrada.cliente_tb_cliente B
+        INNER JOIN lojaintegrada.pedido_tb_pedido_venda A ON B.cliente_id=A.cliente_id
+        INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D ON A.pedido_venda_situacao_id=D.pedido_venda_situacao_id
         WHERE A.conta_id={conta_id}
           AND D.pedido_venda_situacao_nome != 'Pedido Cancelado'
           AND B.cliente_id IN (
-            SELECT DISTINCT A2.cliente_id FROM pedido_tb_pedido_venda A2
-            INNER JOIN pedido_tb_pedido_venda_situacao D2 ON A2.pedido_venda_situacao_id=D2.pedido_venda_situacao_id
+            SELECT DISTINCT A2.cliente_id FROM lojaintegrada.pedido_tb_pedido_venda A2
+            INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D2 ON A2.pedido_venda_situacao_id=D2.pedido_venda_situacao_id
             WHERE A2.conta_id={conta_id}
               AND CONVERT_TZ(A2.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo')
                   BETWEEN '{ref_ini}' AND '{ref_fim}'
               AND D2.pedido_venda_situacao_nome != 'Pedido Cancelado'
           )
           AND B.cliente_id NOT IN (
-            SELECT DISTINCT A3.cliente_id FROM pedido_tb_pedido_venda A3
-            INNER JOIN pedido_tb_pedido_venda_situacao D3 ON A3.pedido_venda_situacao_id=D3.pedido_venda_situacao_id
+            SELECT DISTINCT A3.cliente_id FROM lojaintegrada.pedido_tb_pedido_venda A3
+            INNER JOIN lojaintegrada.pedido_tb_pedido_venda_situacao D3 ON A3.pedido_venda_situacao_id=D3.pedido_venda_situacao_id
             WHERE A3.conta_id={conta_id}
               AND CONVERT_TZ(A3.pedido_venda_data_criacao,'+00:00','America/Sao_Paulo') >= '{corte}'
               AND D3.pedido_venda_situacao_nome != 'Pedido Cancelado'
