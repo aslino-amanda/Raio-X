@@ -435,6 +435,26 @@ if st.session_state.rx_loja_id:
     else:                                           score = 5
     if status_plano == "PAGO" and score >= 35:     score = min(score + 10, 100)
 
+    # Detecta renovação iminente
+    data_ini_plano = str(loja.get("data_ini_plano_atual",""))
+    dias_renovacao = None
+    renovacao_critica = False
+    if data_ini_plano and data_ini_plano not in ("None","nan","NaT",""):
+        try:
+            from dateutil.relativedelta import relativedelta
+            dt_ini = datetime.strptime(data_ini_plano[:10], "%Y-%m-%d").date()
+            # Ciclo mensal — próxima renovação
+            hoje = date.today()
+            prox_renovacao = dt_ini.replace(day=dt_ini.day)
+            while prox_renovacao <= hoje:
+                prox_renovacao = prox_renovacao + relativedelta(months=1)
+            dias_renovacao = (prox_renovacao - hoje).days
+            if dias_renovacao <= 7 and score >= 50:
+                renovacao_critica = True
+                score = min(score + 10, 100)
+        except Exception:
+            pass
+
     cor_score = "#E24B4A" if score >= 70 else "#F59E0B" if score >= 40 else "#1ABCB0"
 
     st.markdown("<div style='background:white;border-radius:14px;padding:1rem 1.5rem;margin-bottom:1rem'>", unsafe_allow_html=True)
@@ -447,7 +467,8 @@ if st.session_state.rx_loja_id:
             f"<span style='background:{bg_st};color:{cor_st};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600'>{status_real}</span>"
             f"<span style='background:#EEEDFE;color:#3C3489;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600'>{status_plano}</span>"
             f"<span style='background:#F2EDE4;color:#5A7A78;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600'>{origem} · {dias_cad}d</span>"
-            f"</div>",
+            + (f"<span style='background:#FEF2F2;color:#991B1B;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700'>⚠️ Renova em {dias_renovacao}d</span>" if renovacao_critica else "")
+            + f"</div>",
             unsafe_allow_html=True)
     with col_sc:
         st.markdown(
@@ -456,6 +477,18 @@ if st.session_state.rx_loja_id:
             f"<div style='font-size:11px;color:#888'>score de risco</div>"
             f"</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── ALERTA RENOVAÇÃO ──────────────────────────────────────────────────────
+    if renovacao_critica:
+        st.markdown(
+            f"<div style='background:#FEF2F2;border-left:4px solid #E24B4A;border-radius:8px;"
+            f"padding:.8rem 1rem;margin-bottom:.8rem'>"
+            f"<div style='font-size:13px;font-weight:700;color:#991B1B'>"
+            f"⚠️ Renovação em {dias_renovacao} dia(s) — loja em queda</div>"
+            f"<div style='font-size:12px;color:#666;margin-top:3px'>"
+            f"Plano {status_plano} renova em breve com GMV em queda de {abs(var_gmv or 0)*100:.0f}%. "
+            f"Risco alto de cancelamento — CS deve acionar antes da renovação.</div>"
+            f"</div>", unsafe_allow_html=True)
 
     # ── LINHA DO TEMPO ────────────────────────────────────────────────────────
     st.markdown("#### 📅 Linha do tempo")
