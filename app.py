@@ -19,7 +19,15 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Descobre os arquivos de página disponíveis
+import os, glob
+pages_dir = os.path.join(os.path.dirname(__file__), "pages")
+page_files = sorted(glob.glob(os.path.join(pages_dir, "*.py")))
+
 col1, col2 = st.columns(2)
+
+onboarding_page = next((f for f in page_files if "nboarding" in f or "nboarding" in f.lower()), None)
+raiox_page      = next((f for f in page_files if "aio" in f.lower()), None)
 
 with col1:
     st.markdown("""
@@ -31,7 +39,11 @@ with col1:
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.page_link("pages/1_Onboarding.py", label="🚀 Abrir Onboarding", use_container_width=True)
+    if onboarding_page:
+        rel = os.path.relpath(onboarding_page, os.path.dirname(__file__))
+        st.page_link(rel, label="🚀 Abrir Onboarding", use_container_width=True)
+    else:
+        st.warning("Página de Onboarding não encontrada.")
 
 with col2:
     st.markdown("""
@@ -43,4 +55,13 @@ with col2:
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.page_link("pages/2_Raio_X.py", label="⚡ Abrir Raio X", use_container_width=True)
+    if raiox_page:
+        rel = os.path.relpath(raiox_page, os.path.dirname(__file__))
+        st.page_link(rel, label="⚡ Abrir Raio X", use_container_width=True)
+    else:
+        st.warning("Página Raio X não encontrada.")
+
+# Debug — mostra quais arquivos encontrou
+with st.expander("🔧 Debug — arquivos encontrados", expanded=False):
+    st.write("pages_dir:", pages_dir)
+    st.write("arquivos:", page_files)
