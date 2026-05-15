@@ -522,8 +522,8 @@ if st.session_state.rx_loja_id:
 
     st.divider()
 
-    # ── SCORE 4 DIMENSÕES ─────────────────────────────────────────────────────
-    st.markdown("#### 📊 Score de saúde")
+    # ── SAÚDE DA LOJA — linguagem humana ──────────────────────────────────────
+    st.markdown("#### 📊 Saúde da loja")
     tem_prod = str(loja.get("data_primeira_config_produto","")) not in ("","None","nan","NaT")
     tem_pag  = str(loja.get("data_primeira_config_pagamento","")) not in ("","None","nan","NaT")
     tem_log  = str(loja.get("data_primeira_config_logistica","")) not in ("","None","nan","NaT")
@@ -531,26 +531,64 @@ if st.session_state.rx_loja_id:
     pedidos  = safe_int(loja.get("qtd_pedido_ultimos_30d"))
     tem_venda= str(loja.get("data_primeira_venda","")) not in ("","None","nan","NaT")
 
-    s_cfg  = (int(tem_prod)+int(tem_pag)+int(tem_log))/3*100
-    s_traf = min(100, visitas/10)
-    s_conv = 100 if (tem_venda and pedidos > 0) else 50 if tem_venda else 0
-    s_ret  = max(0, min(100, 60 + (var_gmv or 0)*100)) if var_gmv is not None else (60 if tem_venda and pedidos > 0 else 20 if tem_venda else 0)
+    # Configuração
+    cfg_ok = tem_prod and tem_pag and tem_log
+    if cfg_ok:
+        cfg_emoji, cfg_titulo, cfg_msg, cfg_cor, cfg_bg = "✅", "Loja configurada", "Produto, pagamento e frete ativos", "#166534", "#F0FDF4"
+    elif not tem_prod:
+        cfg_emoji, cfg_titulo, cfg_msg, cfg_cor, cfg_bg = "🔴", "Sem produto cadastrado", "Nenhum produto ativo — loja não pode vender", "#991B1B", "#FEF2F2"
+    elif not tem_pag:
+        cfg_emoji, cfg_titulo, cfg_msg, cfg_cor, cfg_bg = "🔴", "Sem pagamento ativo", "Checkout travado — cliente não consegue finalizar compra", "#991B1B", "#FEF2F2"
+    else:
+        cfg_emoji, cfg_titulo, cfg_msg, cfg_cor, cfg_bg = "🟡", "Sem frete configurado", "Entrega não disponível — pode estar perdendo vendas", "#92400E", "#FFFBEB"
 
-    dims = [("Configuração",s_cfg,"Prod+Pag+Frete","#0D4F4A"),
-            ("Tráfego",s_traf,f"{visitas} visitas/30d","#6366F1"),
-            ("Conversão",s_conv,f"{pedidos} pedidos/30d","#F59E0B"),
-            ("Retenção",s_ret,"Tendência semanal","#E24B4A" if s_ret < 40 else "#1ABCB0")]
+    # Tráfego
+    if visitas >= 1000:
+        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "✅", f"{visitas:,} visitas/mês", "Tráfego saudável", "#166534", "#F0FDF4"
+    elif visitas >= 100:
+        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🟡", f"{visitas:,} visitas/mês", "Tráfego baixo — potencial de crescimento", "#92400E", "#FFFBEB"
+    elif visitas > 0:
+        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🔴", f"{visitas} visitas/mês", "Loja quase invisível — problema de divulgação", "#991B1B", "#FEF2F2"
+    else:
+        traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg = "🔴", "Zero visitas", "Loja sem tráfego — não está sendo encontrada", "#991B1B", "#FEF2F2"
+
+    # Conversão
+    if pedidos >= 50:
+        conv_emoji, conv_titulo, conv_msg, conv_cor, conv_bg = "✅", f"{pedidos} pedidos/mês", "Vendendo bem", "#166534", "#F0FDF4"
+    elif pedidos > 0:
+        conv_emoji, conv_titulo, conv_msg, conv_cor, conv_bg = "🟡", f"{pedidos} pedidos/mês", "Vendendo pouco para o tráfego que tem", "#92400E", "#FFFBEB"
+    elif tem_venda:
+        conv_emoji, conv_titulo, conv_msg, conv_cor, conv_bg = "🔴", "Sem vendas recentes", "Loja que vendia parou de vender", "#991B1B", "#FEF2F2"
+    else:
+        conv_emoji, conv_titulo, conv_msg, conv_cor, conv_bg = "🔴", "Nunca vendeu", "Loja configurada mas sem nenhuma venda", "#991B1B", "#FEF2F2"
+
+    # Retenção — baseada na tendência semanal
+    if var_gmv is None:
+        ret_emoji, ret_titulo, ret_msg, ret_cor, ret_bg = "⚪", "Sem histórico", "Dados insuficientes para calcular tendência", "#888", "#F5F2EE"
+    elif var_gmv >= 0.05:
+        ret_emoji, ret_titulo, ret_msg, ret_cor, ret_bg = "✅", f"GMV +{var_gmv*100:.1f}%", "Crescendo — tendência positiva", "#166534", "#F0FDF4"
+    elif var_gmv >= -0.10:
+        ret_emoji, ret_titulo, ret_msg, ret_cor, ret_bg = "🟡", f"GMV {var_gmv*100:+.1f}%", "Estável — monitorar nos próximos dias", "#92400E", "#FFFBEB"
+    elif var_gmv >= -0.30:
+        ret_emoji, ret_titulo, ret_msg, ret_cor, ret_bg = "🟠", f"GMV {var_gmv*100:+.1f}% — monitorar", "Queda moderada — verificar causa antes de agravar", "#92400E", "#FFFBEB"
+    elif var_gmv >= -0.50:
+        ret_emoji, ret_titulo, ret_msg, ret_cor, ret_bg = "🔴", f"GMV {var_gmv*100:+.1f}% — atenção", "Queda forte — acionar CS esta semana", "#991B1B", "#FEF2F2"
+    else:
+        ret_emoji, ret_titulo, ret_msg, ret_cor, ret_bg = "🔴", f"GMV {var_gmv*100:+.1f}% — crítico", "Colapso de faturamento — intervenção urgente", "#991B1B", "#FEF2F2"
+
     cd = st.columns(4)
-    for col,(nome_d,sv,sub,cor_d) in zip(cd,dims):
+    for col, (emoji_c, titulo, msg, cor_c, bg_c) in zip(cd, [
+        (cfg_emoji,  cfg_titulo,  cfg_msg,  cfg_cor,  cfg_bg),
+        (traf_emoji, traf_titulo, traf_msg, traf_cor, traf_bg),
+        (conv_emoji, conv_titulo, conv_msg, conv_cor, conv_bg),
+        (ret_emoji,  ret_titulo,  ret_msg,  ret_cor,  ret_bg),
+    ]):
         with col:
-            c_s = cor_d if sv >= 50 else "#E24B4A"
             st.markdown(
-                f"<div style='background:white;border-radius:12px;padding:1rem;text-align:center'>"
-                f"<div style='font-size:13px;font-weight:700;color:#1A2E2B;margin-bottom:.4rem'>{nome_d}</div>"
-                f"<div style='font-size:34px;font-weight:800;color:{c_s}'>{sv:.0f}</div>"
-                f"<div style='background:#F2EDE4;border-radius:4px;height:5px;margin:.4rem 0'>"
-                f"<div style='background:{c_s};width:{min(sv,100):.0f}%;height:5px;border-radius:4px'></div></div>"
-                f"<div style='font-size:11px;color:#888'>{sub}</div>"
+                f"<div style='background:{bg_c};border-radius:12px;padding:1rem;height:100%'>"
+                f"<div style='font-size:24px;margin-bottom:.4rem'>{emoji_c}</div>"
+                f"<div style='font-size:13px;font-weight:700;color:{cor_c};margin-bottom:.3rem'>{titulo}</div>"
+                f"<div style='font-size:12px;color:#555;line-height:1.5'>{msg}</div>"
                 f"</div>", unsafe_allow_html=True)
 
     st.divider()
