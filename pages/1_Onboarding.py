@@ -1,6 +1,6 @@
 """
-X Li — Onboarding
-Fila de lojas novas com gargalo e ação inline.
+X Li — Onboarding v2
+Foco: lojas dos últimos 15 dias — janela onde o CS ainda impacta.
 """
 
 import streamlit as st
@@ -12,244 +12,242 @@ st.set_page_config(page_title="Onboarding · X Li", page_icon="🚀", layout="wi
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 html,body,[class*="css"]{font-family:'Inter',sans-serif;}
-.block-container{padding:1.2rem 2rem 2rem;background:#F2EDE4;}
-.main{background:#F2EDE4;}
+.block-container{padding:1.5rem 2rem 2rem!important;background:#FAFAF8;}
+.main{background:#FAFAF8;}
 [data-testid="stSidebarNav"]{display:none;}
 .stButton>button{background:#0D4F4A!important;color:#D4F53C!important;
-    font-weight:600!important;border:none!important;border-radius:10px!important;}
-.stDownloadButton>button{background:#1ABCB0!important;color:#0D4F4A!important;
-    font-weight:600!important;border:none!important;border-radius:10px!important;}
+    font-weight:600!important;border:none!important;border-radius:8px!important;}
+.stDownloadButton>button{background:#F2EDE4!important;color:#0D4F4A!important;
+    font-weight:600!important;border:none!important;border-radius:8px!important;}
+div[data-testid="stSelectbox"]>div>div{border-radius:8px!important;}
 </style>
 """, unsafe_allow_html=True)
 
+# ── CONEXÃO ───────────────────────────────────────────────────────────────────
+def rodar_sql(sql):
+    import urllib.request, json as _j
+    s   = st.secrets["metabase"]
+    key = s.get("api_key", s.get("token",""))
+    payload = _j.dumps({"database": int(s["db_id"]), "native": {"query": sql}, "type": "native"}).encode()
+    req = urllib.request.Request(f"{s['url']}/api/dataset", data=payload,
+        headers={"Content-Type":"application/json","x-api-key":key}, method="POST")
+    with urllib.request.urlopen(req, timeout=90) as r:
+        d = _j.loads(r.read().decode())
+    if "error" in d: raise Exception(d["error"])
+    cols = [c["name"] for c in d["data"]["cols"]]
+    return pd.DataFrame(d["data"]["rows"], columns=cols)
+
 # ── HEADER ────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div style='background:#0D4F4A;border-radius:14px;padding:1rem 1.5rem;
-            margin-bottom:1.2rem;display:flex;align-items:center;justify-content:space-between'>
-    <div>
-        <div style='font-size:20px;font-weight:700;color:#D4F53C'>🚀 Onboarding</div>
-        <div style='font-size:12px;color:#9DBDBB;margin-top:2px'>
-            Lojas novas · gargalo identificado · ação inline
+col_h, col_back = st.columns([6,1])
+with col_h:
+    st.markdown("""
+    <div style='margin-bottom:1.5rem'>
+        <div style='font-size:11px;color:#9DBDBB;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.3rem'>
+            ⚡ X Li
+        </div>
+        <div style='font-size:24px;font-weight:800;color:#1A2E2B;line-height:1'>Onboarding</div>
+        <div style='font-size:13px;color:#888;margin-top:.3rem'>
+            Lojas dos últimos 15 dias · janela onde o CS ainda impacta
         </div>
     </div>
-    <a href='/' target='_self' style='font-size:12px;color:#9DBDBB;text-decoration:none'>
-        ← X Li
-    </a>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
+with col_back:
+    st.page_link("app.py", label="← Início")
 
-# ── CONEXÃO ───────────────────────────────────────────────────────────────────
-def _ok():
-    try:
-        cfg = st.secrets["metabase"]
-        return bool(cfg.get("url") and ("api_key" in cfg or "token" in cfg))
-    except Exception:
-        return False
-
-def rodar_sql(sql):
-    import urllib.request, json as _json, time
-    s   = st.secrets["metabase"]
-    key = s.get("api_key", s.get("token", ""))
-    payload = _json.dumps({"database": int(s["db_id"]), "native": {"query": sql}, "type": "native"}).encode()
-    req = urllib.request.Request(
-        f"{s['url']}/api/dataset", data=payload,
-        headers={"Content-Type": "application/json", "x-api-key": key}, method="POST")
-    with urllib.request.urlopen(req, timeout=90) as resp:
-        data = _json.loads(resp.read().decode())
-    if "error" in data:
-        raise Exception(data["error"])
-    cols = [c["name"] for c in data["data"]["cols"]]
-    return pd.DataFrame(data["data"]["rows"], columns=cols)
-
-@st.cache_data(ttl=600)
+# ── QUERY ─────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=300)
 def buscar_onboarding():
     return rodar_sql("""
     SELECT
         loja_id,
         COALESCE(upper(nome_loja), upper(dominio_loja), CAST(loja_id AS CHAR)) AS nome_loja,
         upper(segmento_loja)   AS segmento_loja,
-        upper(situacao_loja)   AS situacao_loja,
+        email_loja,
         data_cadastro_loja,
         data_primeira_venda,
-        qtd_pedido_ultimos_30d,
-        vlr_gmv_ultimos_30d,
-        qtde_visitas_ultimos_30d,
         data_primeira_config_pagamento,
         data_primeira_config_logistica,
         data_primeira_config_produto,
         data_ini_plano_atual,
-        CASE WHEN data_ini_plano_atual IS NOT NULL THEN 'PAGO' ELSE 'GRÁTIS' END AS status_plano,
+        upper(tipo_plano_atual) AS tipo_plano,
+        vlr_plano_mrr_atual,
+        'PAGO' AS status_plano,
+        qtd_pedido_ultimos_30d,
+        vlr_gmv_ultimos_30d,
+        qtde_visitas_ultimos_30d,
+        coalesce(datediff(current_date, data_cadastro_loja), 0) AS dias_cadastro,
         CASE
-            WHEN data_primeira_config_pagamento IS NULL
-              OR data_primeira_config_logistica IS NULL
-              OR data_primeira_config_produto   IS NULL THEN 'ONBOARDING INCOMPLETO'
-            WHEN data_primeira_venda IS NULL            THEN 'NUNCA VENDEU'
-            WHEN coalesce(vlr_gmv_ultimos_30d,0) = 0   THEN 'SEM VENDAS RECENTES'
+            WHEN data_primeira_config_produto   IS NULL THEN 'ONBOARDING INCOMPLETO'
+            WHEN data_primeira_config_pagamento IS NULL THEN 'ONBOARDING INCOMPLETO'
+            WHEN data_primeira_config_logistica IS NULL THEN 'ONBOARDING INCOMPLETO'
+            WHEN data_primeira_venda            IS NULL THEN 'NUNCA VENDEU'
             ELSE 'LOJA ATIVA'
-        END AS status_loja,
-        coalesce(datediff(current_date, data_cadastro_loja), 0) AS dias_cadastro
+        END AS status_loja
     FROM analytics_manual.mv_loja
     WHERE situacao_loja = 'ativa'
-      AND data_cadastro_loja >= current_date - interval '60' day
-      AND (
-            data_primeira_config_pagamento IS NULL
-         OR data_primeira_config_logistica IS NULL
-         OR data_primeira_config_produto   IS NULL
-         OR data_primeira_venda            IS NULL
-         OR coalesce(vlr_gmv_ultimos_30d,0) = 0
-      )
-    ORDER BY
-        CASE WHEN data_ini_plano_atual IS NOT NULL THEN 0 ELSE 1 END ASC,
-        dias_cadastro DESC
+      AND data_cadastro_loja >= current_date - interval '15' day
+      AND data_ini_plano_atual IS NOT NULL
+    ORDER BY data_cadastro_loja DESC
     """)
 
-# ── HELPERS ───────────────────────────────────────────────────────────────────
+try:
+    with st.spinner("Carregando fila de onboarding..."):
+        df = buscar_onboarding()
+except Exception as e:
+    st.error(f"Erro ao carregar dados: {e}")
+    st.stop()
+
+if df.empty:
+    st.success("✅ Nenhuma loja em onboarding nos últimos 15 dias.")
+    st.stop()
+
+# ── SCORE + GARGALO ───────────────────────────────────────────────────────────
+df["dias_cadastro"] = pd.to_numeric(df["dias_cadastro"], errors="coerce").fillna(0).astype(int)
+
 def _gargalo(row):
     if str(row.get("data_primeira_config_produto","")) in ("","None","nan","NaT"):
-        return "🔴 Sem produto"
+        return "Sem produto"
     if str(row.get("data_primeira_config_pagamento","")) in ("","None","nan","NaT"):
-        return "🔴 Sem pagamento"
+        return "Sem pagamento"
     if str(row.get("data_primeira_config_logistica","")) in ("","None","nan","NaT"):
-        return "🟡 Sem frete"
+        return "Sem frete"
     if str(row.get("data_primeira_venda","")) in ("","None","nan","NaT"):
-        return "🟠 Nunca vendeu"
-    return "✅ OK"
+        return "Nunca vendeu"
+    return "Ativa"
 
 def _acao(row):
     g = row.get("gargalo","")
-    if "produto"   in g: return "📦 Ligar — cadastrar produto"
-    if "pagamento" in g: return "💳 Ligar — ativar Pagali"
-    if "frete"     in g: return "📬 E-mail — configurar Enviali"
-    if "vendeu"    in g: return "📢 E-mail — guia de divulgação"
+    canal = "📞 Ligar" if row.get("dias_cadastro",0) >= 7 else "📧 E-mail"
+    if g == "Sem produto":    return f"{canal} — cadastrar produto"
+    if g == "Sem pagamento":  return f"{canal} — ativar Pagali"
+    if g == "Sem frete":      return f"{canal} — configurar Enviali"
+    if g == "Nunca vendeu":   return "📧 E-mail — guia de primeiras vendas"
     return "👁️ Monitorar"
 
 def _janela(row):
     d = int(row.get("dias_cadastro") or 0)
-    if d >= 15: return "⚠️ Vencida"
-    if d >= 7:  return "🕐 Crítica"
+    if d >= 12: return "🔴 Crítica"
+    if d >= 7:  return "🟡 Atenção"
     return "🟢 Aberta"
 
-# ── MAIN ──────────────────────────────────────────────────────────────────────
-if not _ok():
-    st.error("Metabase não conectado. Verifique as credenciais em .streamlit/secrets.toml")
-    st.stop()
+def _score(row):
+    base = 0
+    if row.get("gargalo") == "Sem produto":   base = 60
+    elif row.get("gargalo") == "Sem pagamento": base = 70
+    elif row.get("gargalo") == "Sem frete":   base = 50
+    elif row.get("gargalo") == "Nunca vendeu": base = 40
+    d = int(row.get("dias_cadastro") or 0)
+    if d >= 12: base = min(base + 15, 100)
+    elif d >= 7: base = min(base + 7, 100)
+    return base
 
-with st.spinner("Carregando fila de onboarding..."):
-    try:
-        df = buscar_onboarding()
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
-        st.stop()
-
-if df.empty:
-    st.success("✅ Nenhuma loja em onboarding incompleto agora.")
-    st.stop()
-
-# Score
-df["dias_cadastro"] = pd.to_numeric(df["dias_cadastro"], errors="coerce").fillna(0).astype(int)
-_s = df["status_loja"].fillna("")
-_d = df["dias_cadastro"]
-_p = df["status_plano"].fillna("").str.upper()
-_sc = np.where(_s=="ONBOARDING INCOMPLETO", np.where(_d>=7,70,50),
-       np.where(_s=="NUNCA VENDEU",          np.where(_d>=20,45,25),
-       np.where(_s=="SEM VENDAS RECENTES",   55, 5)))
-df["score"]   = np.where(_p=="PAGO", np.minimum(_sc+10,100), _sc).astype(int)
 df["gargalo"] = df.apply(_gargalo, axis=1)
 df["acao_cs"] = df.apply(_acao, axis=1)
 df["janela"]  = df.apply(_janela, axis=1)
-df["mes_entrada"] = pd.to_datetime(df["data_cadastro_loja"], errors="coerce").dt.strftime("%Y-%m").fillna("—")
-df = df.sort_values("score", ascending=False)
+df["score"]   = df.apply(_score, axis=1)
+df = df.sort_values(["score","dias_cadastro"], ascending=[False,False]).reset_index(drop=True)
 
-# Métricas
-n_total   = len(df[df["status_loja"] != "LOJA ATIVA"])
-n_critico = len(df[df["score"] >= 70])
-n_pago    = len(df[(df["status_plano"].str.upper()=="PAGO") & (df["status_loja"]!="LOJA ATIVA")])
-n_janela  = len(df[(df["dias_cadastro"]>=7) & (df["status_loja"]!="LOJA ATIVA")])
+# ── MÉTRICAS ──────────────────────────────────────────────────────────────────
+n_total    = len(df)
+n_critico  = len(df[df["janela"] == "🔴 Crítica"])
+n_atencao  = len(df[df["janela"] == "🟡 Atenção"])
+n_aberta   = len(df[df["janela"] == "🟢 Aberta"])
+n_sem_pag  = len(df[df["gargalo"] == "Sem pagamento"])
+n_sem_prod = len(df[df["gargalo"] == "Sem produto"])
+mrr_risco  = pd.to_numeric(df["vlr_plano_mrr_atual"], errors="coerce").fillna(0).sum()
 
-c1,c2,c3,c4 = st.columns(4)
-c1.metric("Lojas em onboarding", n_total)
-c2.metric("🔴 Score crítico (70+)", n_critico)
-c3.metric("💸 Pagos travados", n_pago)
-c4.metric("⏰ Passaram janela", n_janela)
-st.divider()
+def fmt_brl(v):
+    return f"R${float(v):,.0f}".replace(",","X").replace(".",",").replace("X",".")
 
-# Filtros
-_nomes_mes = {"01":"Jan","02":"Fev","03":"Mar","04":"Abr","05":"Mai","06":"Jun",
-              "07":"Jul","08":"Ago","09":"Set","10":"Out","11":"Nov","12":"Dez"}
-def _fmt(m):
-    try: a,n = m.split("-"); return f"{_nomes_mes.get(n,n)}/{a}"
-    except: return m
+# Cards de métricas
+c1,c2,c3,c4,c5 = st.columns(5)
+for col, label, valor, cor in [
+    (c1, "Total (15 dias)",      str(n_total),       "#1A2E2B"),
+    (c2, "🔴 Janela crítica",    str(n_critico),     "#E24B4A"),
+    (c3, "🟡 Atenção",           str(n_atencao),     "#F59E0B"),
+    (c4, "💳 Sem pagamento",     str(n_sem_pag),     "#6366F1"),
+    (c5, "💰 MRR em risco",      fmt_brl(mrr_risco), "#0D4F4A"),
+]:
+    with col:
+        st.markdown(
+            f"<div style='background:white;border:1.5px solid #E8E4DE;border-radius:12px;"
+            f"padding:.8rem 1rem'>"
+            f"<div style='font-size:11px;color:#888;margin-bottom:.3rem'>{label}</div>"
+            f"<div style='font-size:24px;font-weight:800;color:{cor}'>{valor}</div>"
+            f"</div>", unsafe_allow_html=True)
 
-meses = sorted([m for m in df["mes_entrada"].unique() if m != "—"], reverse=True)
-meses_labels = {m: _fmt(m) for m in meses}
-_lv = {v:k for k,v in meses_labels.items()}
+st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
 
-cf1,cf2,cf3,cf4 = st.columns(4)
-with cf1: f_mes     = st.selectbox("Mês", ["Todos"]+[meses_labels[m] for m in meses])
-with cf2: f_gargalo = st.selectbox("Gargalo", ["Todos","🔴 Sem produto","🔴 Sem pagamento","🟡 Sem frete","🟠 Nunca vendeu"])
-with cf3: f_plano   = st.selectbox("Plano", ["Todos","PAGO","GRÁTIS"])
-with cf4: f_janela  = st.selectbox("Janela", ["Todos","🟢 Aberta","🕐 Crítica","⚠️ Vencida"])
+# ── COHORT POR FAIXA ──────────────────────────────────────────────────────────
+st.markdown("#### Onde estão as lojas")
 
-dv = df[df["status_loja"] != "LOJA ATIVA"].copy()
-if f_mes     != "Todos": dv = dv[dv["mes_entrada"] == _lv.get(f_mes, f_mes)]
+df["faixa"] = pd.cut(df["dias_cadastro"],
+    bins=[-1, 3, 7, 11, 15],
+    labels=["0–3 dias", "4–7 dias", "8–11 dias", "12–15 dias"])
+
+cohort = df.groupby("faixa", observed=True).agg(
+    total=("loja_id","count"),
+    criticos=("janela", lambda x: (x=="🔴 Crítica").sum()),
+    sem_pagamento=("gargalo", lambda x: (x=="Sem pagamento").sum()),
+    venderam=("data_primeira_venda", lambda x: x.notna().sum()),
+    mrr=("vlr_plano_mrr_atual", lambda x: pd.to_numeric(x,errors="coerce").fillna(0).sum()),
+).reset_index()
+
+cols_c = st.columns(4)
+urgencia = {"0–3 dias": ("🟢","#166534","#F0FDF4"), "4–7 dias": ("🟡","#92400E","#FFFBEB"),
+            "8–11 dias": ("🟠","#92400E","#FEF3C7"), "12–15 dias": ("🔴","#991B1B","#FEF2F2")}
+
+for col, (_, row) in zip(cols_c, cohort.iterrows()):
+    with col:
+        emoji, cor_t, bg = urgencia.get(str(row["faixa"]), ("⚪","#888","#F5F2EE"))
+        taxa = round(row["venderam"]/row["total"]*100,1) if row["total"] > 0 else 0
+        st.markdown(
+            f"<div style='background:{bg};border-radius:12px;padding:1rem;margin-bottom:.5rem'>"
+            f"<div style='font-size:11px;font-weight:700;color:{cor_t};text-transform:uppercase;"
+            f"letter-spacing:.08em;margin-bottom:.5rem'>{emoji} {row['faixa']}</div>"
+            f"<div style='font-size:28px;font-weight:800;color:#1A2E2B;line-height:1'>{int(row['total'])}</div>"
+            f"<div style='font-size:11px;color:#888;margin-bottom:.8rem'>lojas pagas</div>"
+            f"<div style='display:flex;justify-content:space-between;font-size:12px'>"
+            f"<div><span style='color:#888'>Sem pgto</span><br>"
+            f"<strong style='color:{cor_t}'>{int(row['sem_pagamento'])}</strong></div>"
+            f"<div><span style='color:#888'>Já vendeu</span><br>"
+            f"<strong style='color:#166534'>{int(row['venderam'])}</strong></div>"
+            f"<div><span style='color:#888'>Conv.</span><br>"
+            f"<strong style='color:#1A2E2B'>{taxa:.0f}%</strong></div>"
+            f"</div></div>",
+            unsafe_allow_html=True)
+
+st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
+
+# ── FILTROS ───────────────────────────────────────────────────────────────────
+cf1,cf2,cf3 = st.columns(3)
+with cf1: f_gargalo = st.selectbox("Gargalo", ["Todos","Sem produto","Sem pagamento","Sem frete","Nunca vendeu"])
+with cf2: f_janela  = st.selectbox("Urgência", ["Todos","🔴 Crítica","🟡 Atenção","🟢 Aberta"])
+with cf3: f_seg     = st.selectbox("Segmento", ["Todos"] + sorted(df["segmento_loja"].dropna().unique().tolist()))
+
+dv = df.copy()
 if f_gargalo != "Todos": dv = dv[dv["gargalo"] == f_gargalo]
-if f_plano   != "Todos": dv = dv[dv["status_plano"].str.upper().str.replace("GRÁTIS","GRÁTIS") == f_plano]
-if f_janela  != "Todos": dv = dv[dv["janela"] == f_janela]
+if f_janela  != "Todos": dv = dv[dv["janela"]  == f_janela]
+if f_seg     != "Todos": dv = dv[dv["segmento_loja"] == f_seg]
 
-st.caption(f"{len(dv)} loja(s) encontrada(s)")
+st.caption(f"{len(dv)} loja(s) · ordenadas por urgência")
 
-cols_show = [c for c in ["loja_id","nome_loja","segmento_loja","status_plano",
-                          "score","dias_cadastro","gargalo","janela","acao_cs"] if c in dv.columns]
+# ── TABELA ────────────────────────────────────────────────────────────────────
+cols_show = [c for c in ["loja_id","nome_loja","segmento_loja","dias_cadastro",
+                          "gargalo","janela","acao_cs","email_loja"] if c in dv.columns]
 st.dataframe(
     dv[cols_show].rename(columns={
         "loja_id":"ID","nome_loja":"Loja","segmento_loja":"Segmento",
-        "status_plano":"Plano","score":"Score","dias_cadastro":"Dias",
-        "gargalo":"Gargalo","janela":"Janela","acao_cs":"Ação CS",
+        "dias_cadastro":"Dias","gargalo":"Gargalo",
+        "janela":"Urgência","acao_cs":"Ação CS","email_loja":"E-mail",
     }),
     use_container_width=True, hide_index=True,
-    column_config={"Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d")},
 )
 
+st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
 st.download_button("⬇️ Exportar CSV",
     data=dv[cols_show].to_csv(index=False).encode("utf-8"),
     file_name=f"onboarding_{date.today().strftime('%Y%m%d')}.csv",
     mime="text/csv")
-
-st.divider()
-
-# ── COHORT ────────────────────────────────────────────────────────────────────
-st.markdown("#### 📊 Cohort — % que já vendeu por mês de entrada")
-cohort = df[df["status_loja"]!="LOJA ATIVA"].groupby("mes_entrada").agg(
-    total=("loja_id","count"),
-    venderam=("data_primeira_venda", lambda x: x.notna().sum()),
-    pagos=("status_plano", lambda x: (x.str.upper()=="PAGO").sum()),
-    criticos=("score", lambda x: (pd.to_numeric(x,errors="coerce")>=70).sum()),
-).reset_index().sort_values("mes_entrada", ascending=False)
-
-cohort["% vendeu"]   = (cohort["venderam"] / cohort["total"] * 100).round(1)
-cohort["% pagos"]    = (cohort["pagos"]    / cohort["total"] * 100).round(1)
-cohort["% críticos"] = (cohort["criticos"] / cohort["total"] * 100).round(1)
-cohort["Mês"]        = cohort["mes_entrada"].apply(_fmt)
-
-cols_c = st.columns(min(len(cohort), 4))
-for i, (_, rc) in enumerate(cohort.iterrows()):
-    with cols_c[i % 4]:
-        pv  = float(rc["% vendeu"])
-        cor = "#1ABCB0" if pv >= 30 else "#F59E0B" if pv >= 10 else "#E24B4A"
-        st.markdown(
-            f"<div style='background:white;border-radius:10px;padding:.8rem;margin-bottom:8px'>"
-            f"<div style='font-size:13px;font-weight:700;color:#1A2E2B'>{rc['Mês']}</div>"
-            f"<div style='font-size:11px;color:#888;margin:.2rem 0'>{int(rc['total'])} lojas</div>"
-            f"<div style='display:flex;gap:6px;margin-top:.4rem'>"
-            f"<div style='flex:1;background:#F0FDF4;border-radius:6px;padding:.3rem;text-align:center'>"
-            f"<div style='font-size:16px;font-weight:800;color:{cor}'>{pv:.0f}%</div>"
-            f"<div style='font-size:10px;color:#888'>vendeu</div></div>"
-            f"<div style='flex:1;background:#FEF2F2;border-radius:6px;padding:.3rem;text-align:center'>"
-            f"<div style='font-size:16px;font-weight:800;color:#E24B4A'>{rc['% críticos']:.0f}%</div>"
-            f"<div style='font-size:10px;color:#888'>críticos</div></div>"
-            f"<div style='flex:1;background:#EEEDFE;border-radius:6px;padding:.3rem;text-align:center'>"
-            f"<div style='font-size:16px;font-weight:800;color:#6366F1'>{rc['% pagos']:.0f}%</div>"
-            f"<div style='font-size:10px;color:#888'>pagos</div></div>"
-            f"</div></div>", unsafe_allow_html=True)
