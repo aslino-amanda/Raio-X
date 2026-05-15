@@ -928,20 +928,130 @@ if st.session_state.rx_loja_id:
     tab_n2, tab_cs, tab_lider = st.tabs(["🔧 N2 · Automação","📞 CS · Sucesso do Cliente","📊 Liderança"])
 
     with tab_n2:
-        if tend and tend.get("gmv_anterior"):
-            c1,c2,c3 = st.columns(3)
-            c1.metric("Var. GMV",     f"{safe_float(tend.get('var_gmv_pct')):+.1f}%")
-            c2.metric("Var. Pedidos", f"{safe_float(tend.get('var_pedidos_pct')):+.1f}%")
-            c3.metric("Var. Ticket",  f"{safe_float(tend.get('var_ticket_pct')):+.1f}%")
-        acao_tecnica = {
-            "QUEDA CRÍTICA":         "Diagnóstico completo urgente — mix de pagamento, churn B2B, variação de cupom",
-            "QUEDA ALTA":            "Verificar mix de pagamento e clientes recorrentes de alto valor",
-            "QUEDA EM RISCO":        "Monitorar tendência por mais 7 dias — preparar diagnóstico se persistir",
-            "ONBOARDING INCOMPLETO": "Identificar gargalo específico e acionar automação de e-mail",
-            "NUNCA VENDEU":          "Verificar visitas e taxa de conversão — problema de tráfego ou produto",
-            "SEM VENDAS RECENTES":   "CS verificar urgente: loja acessível, estoque ativo, domínio válido",
-        }.get(status_real, "Monitoramento de rotina")
-        st.markdown(f"→ {acao_tecnica}")
+        # Monta diagnóstico técnico baseado nos dados reais
+        var_g = safe_float(tend.get("var_gmv_pct")) if tend and tend.get("gmv_anterior") else None
+        var_p = safe_float(tend.get("var_pedidos_pct")) if tend and tend.get("gmv_anterior") else None
+        var_t = safe_float(tend.get("var_ticket_pct")) if tend and tend.get("gmv_anterior") else None
+        gmv_risco_val = safe_float(tend.get("gmv_em_risco")) if tend else 0
+        n_churned = len(df_ch) if not df_ch.empty else 0
+
+        # Título do diagnóstico
+        if var_g is not None and var_g <= -90:
+            titulo_n2 = f"🔴 Loja parou de vender completamente ({var_g:+.0f}% GMV)"
+            cor_titulo = "#991B1B"; bg_titulo = "#FEF2F2"
+        elif var_g is not None and var_g <= -50:
+            titulo_n2 = f"🔴 Colapso de faturamento — queda de {abs(var_g):.0f}% no GMV"
+            cor_titulo = "#991B1B"; bg_titulo = "#FEF2F2"
+        elif var_g is not None and var_g <= -20:
+            titulo_n2 = f"🟠 Queda significativa de {abs(var_g):.0f}% no GMV — investigar causa"
+            cor_titulo = "#92400E"; bg_titulo = "#FFFBEB"
+        elif status_real == "ONBOARDING INCOMPLETO":
+            titulo_n2 = "🔴 Gargalo de configuração impedindo vendas"
+            cor_titulo = "#991B1B"; bg_titulo = "#FEF2F2"
+        elif status_real == "NUNCA VENDEU":
+            titulo_n2 = "🟠 Loja configurada mas sem nenhuma conversão"
+            cor_titulo = "#92400E"; bg_titulo = "#FFFBEB"
+        elif status_real == "SEM VENDAS RECENTES":
+            titulo_n2 = "🟡 Loja que vendia entrou em inatividade"
+            cor_titulo = "#92400E"; bg_titulo = "#FFFBEB"
+        else:
+            titulo_n2 = "✅ Loja saudável — monitoramento de rotina"
+            cor_titulo = "#166534"; bg_titulo = "#F0FDF4"
+
+        st.markdown(
+            f"<div style='background:{bg_titulo};border-radius:10px;padding:.8rem 1rem;margin-bottom:1rem'>"
+            f"<div style='font-size:14px;font-weight:700;color:{cor_titulo}'>{titulo_n2}</div>"
+            f"</div>", unsafe_allow_html=True)
+
+        # O que os dados mostram
+        evidencias = []
+        if var_g is not None:
+            evidencias.append(f"GMV {var_g:+.1f}% nas últimas 2 semanas vs mesmo período 30 dias atrás")
+        if var_p is not None:
+            evidencias.append(f"Volume de pedidos {var_p:+.1f}%")
+        if var_t is not None:
+            evidencias.append(f"Ticket médio {var_t:+.1f}%")
+        if gmv_risco_val > 0:
+            evidencias.append(f"{fmt_brl(gmv_risco_val)} em GMV abaixo do período de referência")
+        if n_churned > 0:
+            receita_ch = safe_float(df_ch["receita_historico"].sum()) if "receita_historico" in df_ch.columns else 0
+            evidencias.append(f"{n_churned} clientes churned identificados — {fmt_brl(receita_ch)} em receita histórica em risco")
+
+        # Detecta mix de pagamento removido
+        pag_removido = None
+        if not df_pag.empty and "mes" in df_pag.columns:
+            meses_p = sorted(df_pag["mes"].unique())
+            if len(meses_p) >= 2:
+                f_rec = set(df_pag[df_pag["mes"]==meses_p[-1]]["forma_pagamento"].tolist())
+                f_ant = set(df_pag[df_pag["mes"]==meses_p[-2]]["forma_pagamento"].tolist())
+                removidas_p = f_ant - f_rec
+                if removidas_p:
+                    pag_removido = ", ".join(removidas_p)
+                    evidencias.append(f"Forma de pagamento removida recentemente: {pag_removido}")
+
+        if evidencias:
+            st.markdown("**O que os dados mostram:**")
+            for ev in evidencias:
+                st.markdown(f"→ {ev}")
+
+        st.markdown("")
+
+        # Checklist de investigação
+        checklist = []
+
+        if var_g is not None and var_g <= -90:
+            checklist = [
+                f"Verificar se a forma de pagamento principal está ativa em Configurações → Pagamentos" + (f" (especialmente: {pag_removido})" if pag_removido else ""),
+                "Testar o checkout da loja — consegue iniciar e finalizar um pedido?",
+                "Verificar se o domínio está ativo e apontando corretamente",
+                "Checar se há erros no painel de integrações de pagamento",
+                "Se pagamento ativo, verificar se o estoque dos produtos principais está zerado",
+            ]
+        elif var_g is not None and var_g <= -50:
+            checklist = [
+                "Rodar diagnóstico de mix de pagamento — verificar se alguma forma foi removida",
+                f"Analisar os {n_churned} clientes churned — identificar padrão de saída (B2B, forma de pgto, segmento)",
+                "Verificar variação de cupons ativos — desconto excessivo pode estar comprimindo GMV",
+                "Checar se houve mudança de preço ou catálogo no período",
+                "Comparar pedidos cancelados deste período vs período anterior",
+            ]
+        elif var_g is not None and var_g <= -20:
+            checklist = [
+                "Monitorar por mais 7 dias antes de acionar CS — pode ser variação sazonal",
+                "Verificar mix de pagamento — alguma forma perdendo volume?",
+                f"Observar recorrentes: {n_churned} clientes sumiram — B2B ou B2C?",
+                "Preparar diagnóstico completo se queda persistir na próxima semana",
+            ]
+        elif status_real == "ONBOARDING INCOMPLETO":
+            falta = []
+            if not tem_prod: falta.append("cadastrar produto")
+            if not tem_pag:  falta.append("ativar pagamento (Pagali)")
+            if not tem_log:  falta.append("configurar frete (Enviali)")
+            checklist = [
+                f"Gargalo identificado: {' + '.join(falta) if falta else 'verificar configurações'}",
+                "Acionar automação de e-mail de onboarding com o passo específico que falta",
+                "Se loja paga e travada há 7+ dias: escalar para CS com prioridade",
+            ]
+        elif status_real == "NUNCA VENDEU":
+            checklist = [
+                f"Verificar taxa de conversão: {visitas:,} visitas e {pedidos} pedidos — problema de produto ou preço?",
+                "Checar se o checkout está funcionando (teste manual)",
+                "Verificar se os produtos têm foto, descrição e preço competitivo",
+                "Acionar e-mail com checklist de primeiras vendas",
+            ]
+        else:
+            checklist = ["Monitoramento de rotina — sem ação técnica necessária agora"]
+
+        st.markdown("**Checklist de investigação:**")
+        for i, item in enumerate(checklist, 1):
+            st.markdown(
+                f"<div style='background:white;border-radius:8px;padding:.6rem .9rem;margin-bottom:4px;"
+                f"display:flex;align-items:flex-start;gap:.6rem'>"
+                f"<span style='background:#F2EDE4;color:#0D4F4A;font-size:11px;font-weight:700;"
+                f"padding:2px 7px;border-radius:20px;white-space:nowrap'>☐ {i}</span>"
+                f"<span style='font-size:13px;color:#1A2E2B'>{item}</span>"
+                f"</div>",
+                unsafe_allow_html=True)
 
     with tab_cs:
         acao_cs = {
