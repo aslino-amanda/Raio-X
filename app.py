@@ -35,11 +35,12 @@ try:
         SELECT COUNT(*) FROM analytics_manual.mv_loja
         WHERE situacao_loja = 'ativa'
           AND data_cadastro_loja >= current_date - interval '60' day
+          AND upper(tipo_plano_atual) != 'GRATIS'
+          AND vlr_plano_mrr_atual > 0
           AND (data_primeira_config_pagamento IS NULL
             OR data_primeira_config_logistica IS NULL
             OR data_primeira_config_produto   IS NULL
-            OR (data_primeira_venda IS NULL AND data_cadastro_loja <= current_date - interval '3' day)
-            OR (coalesce(vlr_gmv_ultimos_30d,0) = 0 AND data_primeira_venda IS NOT NULL))
+            OR data_primeira_venda IS NULL)
     """}}).encode()
     req = urllib.request.Request(f"{s['url']}/api/dataset", data=payload,
         headers={"Content-Type":"application/json","x-api-key":key}, method="POST")
