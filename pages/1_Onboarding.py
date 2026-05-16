@@ -89,6 +89,8 @@ def buscar_onboarding():
     WHERE situacao_loja = 'ativa'
       AND data_cadastro_loja >= current_date - interval '15' day
       AND data_ini_plano_atual IS NOT NULL
+      AND upper(tipo_plano_atual) != 'GRATIS'
+      AND vlr_plano_mrr_atual > 0
     ORDER BY data_cadastro_loja DESC
     """)
 
