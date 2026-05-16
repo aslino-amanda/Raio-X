@@ -145,6 +145,12 @@ def _score(row):
     elif d >= 7: base = min(base + 7, 100)
     return base
 
+# Renomeia lojas Komea para exibição
+import re
+df["nome_loja"] = df["nome_loja"].apply(
+    lambda n: "Komea" if str(n).upper().startswith("NOVA-LOJA-") and "LOJAINTEGRADA.COM.BR" in str(n).upper() else n
+)
+
 df["gargalo"] = df.apply(_gargalo, axis=1)
 df["acao_cs"] = df.apply(_acao, axis=1)
 df["janela"]  = df.apply(_janela, axis=1)
