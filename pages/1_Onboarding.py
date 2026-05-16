@@ -162,14 +162,14 @@ df["janela"]  = df.apply(_janela, axis=1)
 df["score"]   = df.apply(_score, axis=1)
 
 # North Star — % de novos lojistas com 5 pedidos em até 15 dias
-def _north_star(row):
-    ped = int(row.get("qtd_pedido_ultimos_30d") or 0)
+df["pedidos"] = pd.to_numeric(df["qtd_pedido_ultimos_30d"], errors="coerce").fillna(0).astype(int)
+
+def _north_star(ped):
     if ped >= 5:   return "🏆 Atingiu"
     elif ped >= 1: return "⚡ Em progresso"
     else:          return "🔴 Em risco"
 
-df["north_star"] = df.apply(_north_star, axis=1)
-df["pedidos"]    = pd.to_numeric(df["qtd_pedido_ultimos_30d"], errors="coerce").fillna(0).astype(int)
+df["north_star"] = df["pedidos"].apply(_north_star)
 df = df.sort_values(["score","dias_cadastro"], ascending=[False,False]).reset_index(drop=True)
 
 # ── MÉTRICAS ──────────────────────────────────────────────────────────────────
