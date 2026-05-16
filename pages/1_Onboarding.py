@@ -160,6 +160,16 @@ df["gargalo"] = df.apply(_gargalo, axis=1)
 df["acao_cs"] = df.apply(_acao, axis=1)
 df["janela"]  = df.apply(_janela, axis=1)
 df["score"]   = df.apply(_score, axis=1)
+
+# North Star — % de novos lojistas com 5 pedidos em até 15 dias
+def _north_star(row):
+    ped = int(row.get("qtd_pedido_ultimos_30d") or 0)
+    if ped >= 5:   return "🏆 Atingiu"
+    elif ped >= 1: return "⚡ Em progresso"
+    else:          return "🔴 Em risco"
+
+df["north_star"] = df.apply(_north_star, axis=1)
+df["pedidos"]    = pd.to_numeric(df["qtd_pedido_ultimos_30d"], errors="coerce").fillna(0).astype(int)
 df = df.sort_values(["score","dias_cadastro"], ascending=[False,False]).reset_index(drop=True)
 
 # ── MÉTRICAS ──────────────────────────────────────────────────────────────────
@@ -191,7 +201,42 @@ for col, label, valor, cor in [
             f"<div style='font-size:24px;font-weight:800;color:{cor}'>{valor}</div>"
             f"</div>", unsafe_allow_html=True)
 
-st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+# ── NORTH STAR ───────────────────────────────────────────────────────────────
+n_atingiu   = len(df[df["north_star"] == "🏆 Atingiu"])
+n_progresso = len(df[df["north_star"] == "⚡ Em progresso"])
+n_risco_ns  = len(df[df["north_star"] == "🔴 Em risco"])
+pct_ns      = round(n_atingiu / n_total * 100, 1) if n_total > 0 else 0
+
+st.markdown("""
+<div style='background:#0D4F4A;border-radius:14px;padding:1.2rem 1.5rem;margin-bottom:1.2rem'>
+    <div style='font-size:11px;color:#1ABCB0;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.5rem'>
+        ⭐ North Star 2026 — % de novos lojistas com 5 pedidos em até 15 dias
+    </div>
+    <div style='display:flex;align-items:center;gap:2rem;flex-wrap:wrap'>
+        <div>
+            <div style='font-size:48px;font-weight:800;color:#D4F53C;line-height:1'>{pct_ns}%</div>
+            <div style='font-size:12px;color:#9DBDBB'>da base paga atingiu o North Star</div>
+        </div>
+        <div style='display:flex;gap:1.5rem;flex-wrap:wrap'>
+            <div style='background:#1A6A64;border-radius:10px;padding:.7rem 1rem;text-align:center'>
+                <div style='font-size:22px;font-weight:800;color:#D4F53C'>{n_atingiu}</div>
+                <div style='font-size:11px;color:#9DBDBB'>🏆 Atingiram<br>5+ pedidos</div>
+            </div>
+            <div style='background:#1A6A64;border-radius:10px;padding:.7rem 1rem;text-align:center'>
+                <div style='font-size:22px;font-weight:800;color:#F59E0B'>{n_progresso}</div>
+                <div style='font-size:11px;color:#9DBDBB'>⚡ Em progresso<br>1-4 pedidos</div>
+            </div>
+            <div style='background:#1A6A64;border-radius:10px;padding:.7rem 1rem;text-align:center'>
+                <div style='font-size:22px;font-weight:800;color:#E24B4A'>{n_risco_ns}</div>
+                <div style='font-size:11px;color:#9DBDBB'>🔴 Em risco<br>0 pedidos</div>
+            </div>
+        </div>
+    </div>
+</div>
+""".format(pct_ns=pct_ns, n_atingiu=n_atingiu, n_progresso=n_progresso, n_risco_ns=n_risco_ns),
+unsafe_allow_html=True)
+
+st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
 
 # ── COHORT POR FAIXA ──────────────────────────────────────────────────────────
 st.markdown("#### Onde estão as lojas")
@@ -235,26 +280,28 @@ for col, (_, row) in zip(cols_c, cohort.iterrows()):
 st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
 
 # ── FILTROS ───────────────────────────────────────────────────────────────────
-cf1,cf2,cf3 = st.columns(3)
+cf1,cf2,cf3,cf4 = st.columns(4)
 with cf1: f_gargalo = st.selectbox("Gargalo", ["Todos","Sem produto","Sem pagamento","Sem frete","Nunca vendeu"])
 with cf2: f_janela  = st.selectbox("Urgência", ["Todos","🔴 Crítica","🟡 Atenção","🟢 Aberta"])
-with cf3: f_seg     = st.selectbox("Segmento", ["Todos"] + sorted(df["segmento_loja"].dropna().unique().tolist()))
+with cf3: f_ns      = st.selectbox("North Star", ["Todos","🏆 Atingiu","⚡ Em progresso","🔴 Em risco"])
+with cf4: f_seg     = st.selectbox("Segmento", ["Todos"] + sorted(df["segmento_loja"].dropna().unique().tolist()))
 
 dv = df.copy()
 if f_gargalo != "Todos": dv = dv[dv["gargalo"] == f_gargalo]
 if f_janela  != "Todos": dv = dv[dv["janela"]  == f_janela]
+if f_ns      != "Todos": dv = dv[dv["north_star"] == f_ns]
 if f_seg     != "Todos": dv = dv[dv["segmento_loja"] == f_seg]
 
 st.caption(f"{len(dv)} loja(s) · ordenadas por urgência")
 
 # ── TABELA ────────────────────────────────────────────────────────────────────
 cols_show = [c for c in ["loja_id","nome_loja","segmento_loja","dias_cadastro",
-                          "gargalo","janela","acao_cs","email_loja"] if c in dv.columns]
+                          "pedidos","north_star","gargalo","janela","acao_cs","email_loja"] if c in dv.columns]
 st.dataframe(
     dv[cols_show].rename(columns={
         "loja_id":"ID","nome_loja":"Loja","segmento_loja":"Segmento",
-        "dias_cadastro":"Dias","gargalo":"Gargalo",
-        "janela":"Urgência","acao_cs":"Ação CS","email_loja":"E-mail",
+        "dias_cadastro":"Dias","pedidos":"Pedidos","north_star":"North Star",
+        "gargalo":"Gargalo","janela":"Urgência","acao_cs":"Ação CS","email_loja":"E-mail",
     }),
     use_container_width=True, hide_index=True,
 )
