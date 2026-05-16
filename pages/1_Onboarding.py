@@ -54,7 +54,8 @@ with col_h:
     </div>
     """, unsafe_allow_html=True)
 with col_back:
-    st.page_link("app.py", label="← Início")
+    if st.button("← Início", key="btn_back_onb"):
+        st.switch_page("app.py")
 
 # ── QUERY ─────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
