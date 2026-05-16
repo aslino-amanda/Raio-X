@@ -151,6 +151,10 @@ df["nome_loja"] = df["nome_loja"].apply(
     lambda n: "Komea" if str(n).upper().startswith("NOVA-LOJA-") and "LOJAINTEGRADA.COM.BR" in str(n).upper() else n
 )
 
+# Remove lojas de teste
+_teste_keywords = ["TESTE", "TEST", "DEMO", "LOJA TESTE", "STORE TEST", "EXEMPLO"]
+df = df[~df["nome_loja"].str.upper().str.contains("|".join(_teste_keywords), na=False)].copy()
+
 df["gargalo"] = df.apply(_gargalo, axis=1)
 df["acao_cs"] = df.apply(_acao, axis=1)
 df["janela"]  = df.apply(_janela, axis=1)
