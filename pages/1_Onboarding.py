@@ -170,6 +170,27 @@ def _north_star(ped):
     else:          return "🔴 Em risco"
 
 df["north_star"] = df["pedidos"].apply(_north_star)
+
+# Ritmo — pedidos por dia desde cadastro
+df["ritmo"] = (df["pedidos"] / df["dias_cadastro"].replace(0, 1)).round(1)
+
+# Projeção — vai chegar em 5 pedidos nos 15 dias?
+def _projecao(row):
+    dias   = int(row["dias_cadastro"])
+    ped    = int(row["pedidos"])
+    ritmo  = float(row["ritmo"])
+    if ped >= 5:
+        return "✅ Atingiu"
+    dias_restantes = max(0, 15 - dias)
+    projetado = ped + ritmo * dias_restantes
+    if projetado >= 5:
+        return f"📈 Vai chegar (~{projetado:.0f} ped.)"
+    elif projetado >= 3:
+        return f"⚠️ Talvez ({projetado:.0f} ped. proj.)"
+    else:
+        return f"❌ Não vai ({projetado:.0f} ped. proj.)"
+
+df["projecao"] = df.apply(_projecao, axis=1)
 df = df.sort_values(["score","dias_cadastro"], ascending=[False,False]).reset_index(drop=True)
 
 # ── MÉTRICAS ──────────────────────────────────────────────────────────────────
@@ -238,6 +259,45 @@ unsafe_allow_html=True)
 
 st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
 
+# ── SEGMENTO — maior e menor conversão ───────────────────────────────────────
+st.markdown("#### 🏪 Conversão por segmento")
+seg_ns = df[df["segmento_loja"].notna()].groupby("segmento_loja").agg(
+    total=("loja_id","count"),
+    atingiram=("north_star", lambda x: (x=="🏆 Atingiu").sum()),
+    pedidos_med=("pedidos","mean"),
+).reset_index()
+seg_ns = seg_ns[seg_ns["total"] >= 3]  # mínimo 3 lojas para ser relevante
+seg_ns["conv_pct"] = (seg_ns["atingiram"] / seg_ns["total"] * 100).round(0).astype(int)
+seg_ns = seg_ns.sort_values("conv_pct", ascending=False)
+
+if not seg_ns.empty:
+    top3    = seg_ns.head(3)
+    bottom3 = seg_ns[seg_ns["conv_pct"] < seg_ns["conv_pct"].max()].tail(3)
+
+    col_top, col_bot = st.columns(2)
+    with col_top:
+        st.markdown("<div style='font-size:12px;font-weight:700;color:#166534;margin-bottom:.4rem'>🏆 Maior conversão</div>", unsafe_allow_html=True)
+        for _, r in top3.iterrows():
+            st.markdown(
+                f"<div style='background:#F0FDF4;border-radius:8px;padding:.5rem .8rem;"
+                f"margin-bottom:4px;display:flex;justify-content:space-between;align-items:center'>"
+                f"<span style='font-size:12px;color:#1A2E2B'>{r['segmento_loja'][:30]}</span>"
+                f"<span style='font-size:13px;font-weight:700;color:#166534'>{r['conv_pct']}% "
+                f"<span style='font-size:11px;color:#888'>({r['atingiram']}/{r['total']})</span></span>"
+                f"</div>", unsafe_allow_html=True)
+    with col_bot:
+        st.markdown("<div style='font-size:12px;font-weight:700;color:#991B1B;margin-bottom:.4rem'>⚠️ Menor conversão</div>", unsafe_allow_html=True)
+        for _, r in bottom3.iterrows():
+            st.markdown(
+                f"<div style='background:#FEF2F2;border-radius:8px;padding:.5rem .8rem;"
+                f"margin-bottom:4px;display:flex;justify-content:space-between;align-items:center'>"
+                f"<span style='font-size:12px;color:#1A2E2B'>{r['segmento_loja'][:30]}</span>"
+                f"<span style='font-size:13px;font-weight:700;color:#991B1B'>{r['conv_pct']}% "
+                f"<span style='font-size:11px;color:#888'>({r['atingiram']}/{r['total']})</span></span>"
+                f"</div>", unsafe_allow_html=True)
+
+st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
+
 # ── COHORT POR FAIXA ──────────────────────────────────────────────────────────
 st.markdown("#### Onde estão as lojas")
 
@@ -292,15 +352,27 @@ if f_janela  != "Todos": dv = dv[dv["janela"]  == f_janela]
 if f_ns      != "Todos": dv = dv[dv["north_star"] == f_ns]
 if f_seg     != "Todos": dv = dv[dv["segmento_loja"] == f_seg]
 
+# Highlight — lojas que NÃO vão chegar e ainda têm janela
+n_nao_vai = len(dv[dv["projecao"].str.startswith("❌") & (dv["dias_cadastro"] < 15)])
+if n_nao_vai > 0:
+    st.markdown(
+        f"<div style='background:#FEF2F2;border-left:4px solid #E24B4A;border-radius:8px;"
+        f"padding:.7rem 1rem;margin-bottom:.5rem'>"
+        f"<div style='font-size:13px;font-weight:700;color:#991B1B'>"
+        f"❌ {n_nao_vai} loja(s) com projeção abaixo de 5 pedidos e ainda na janela — acionar agora</div>"
+        f"</div>", unsafe_allow_html=True)
+
 st.caption(f"{len(dv)} loja(s) · ordenadas por urgência")
 
 # ── TABELA ────────────────────────────────────────────────────────────────────
 cols_show = [c for c in ["loja_id","nome_loja","segmento_loja","dias_cadastro",
-                          "pedidos","north_star","gargalo","janela","acao_cs","email_loja"] if c in dv.columns]
+                          "pedidos","ritmo","projecao","north_star",
+                          "gargalo","janela","acao_cs","email_loja"] if c in dv.columns]
 st.dataframe(
     dv[cols_show].rename(columns={
         "loja_id":"ID","nome_loja":"Loja","segmento_loja":"Segmento",
-        "dias_cadastro":"Dias","pedidos":"Pedidos","north_star":"North Star",
+        "dias_cadastro":"Dias","pedidos":"Pedidos","ritmo":"Ped/dia",
+        "projecao":"Projeção 15d","north_star":"North Star",
         "gargalo":"Gargalo","janela":"Urgência","acao_cs":"Ação CS","email_loja":"E-mail",
     }),
     use_container_width=True, hide_index=True,
