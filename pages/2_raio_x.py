@@ -1147,6 +1147,123 @@ if st.session_state.rx_loja_id:
 
     st.divider()
 
+    # ── IA — DIAGNÓSTICO NARRATIVO ───────────────────────────────────────────
+    st.divider()
+    st.markdown("#### 🤖 Diagnóstico com IA")
+
+    def chamar_groq(contexto):
+        try:
+            import requests
+            key = st.secrets.get("groq", {}).get("api_key", "")
+            if not key:
+                return None, "Groq API key não configurada nos secrets."
+
+            system = """Você é um analista especialista em e-commerce e retenção de lojistas da Loja Integrada.
+Analise os dados fornecidos e gere um diagnóstico executivo em português brasileiro.
+Seja direto, específico com os números e orientado a ação.
+Estruture em 3 partes:
+1. O que está acontecendo (2-3 frases)
+2. Causas identificadas (bullets)
+3. Ações recomendadas por prioridade (bullets)"""
+
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama3-70b-8192",
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": contexto}
+                    ],
+                    "max_tokens": 800,
+                    "temperature": 0.7,
+                },
+                timeout=30
+            )
+            resp.raise_for_status()
+            texto = resp.json()["choices"][0]["message"]["content"]
+            return texto, None
+        except Exception as e:
+            return None, str(e)
+
+    def montar_contexto_ia(loja, tend, df_ch, df_nr, status_real, var_gmv):
+        nome  = loja.get("nome_loja","—")
+        seg   = loja.get("segmento_loja","—")
+        gmv30 = fmt_brl(loja.get("vlr_gmv_ultimos_30d",0))
+        ped30 = safe_int(loja.get("qtd_pedido_ultimos_30d",0))
+
+        linhas = [
+            "LOJA: {} | SEGMENTO: {} | STATUS: {}".format(nome, seg, status_real),
+            "GMV 30d: {} | Pedidos 30d: {}".format(gmv30, ped30),
+        ]
+
+        if tend and tend.get("gmv_anterior"):
+            linhas += [
+                "",
+                "TENDÊNCIA SEMANAL:",
+                "- GMV atual: {} ({:+.1f}%)".format(fmt_brl(tend.get("gmv_atual")), safe_float(tend.get("var_gmv_pct"))),
+                "- Pedidos: {} ({:+.1f}%)".format(safe_int(tend.get("pedidos_atual")), safe_float(tend.get("var_pedidos_pct"))),
+                "- Ticket médio: {} ({:+.1f}%)".format(fmt_brl(tend.get("ticket_atual")), safe_float(tend.get("var_ticket_pct"))),
+                "- GMV em risco: {}".format(fmt_brl(tend.get("gmv_em_risco", 0))),
+            ]
+
+        if not df_ch.empty and "receita_historico" in df_ch.columns:
+            receita_ch = safe_float(df_ch["receita_historico"].sum())
+            linhas += ["", "CLIENTES CHURNED: {} identificados | {} em receita histórica".format(len(df_ch), fmt_brl(receita_ch))]
+            for _, r in df_ch.head(3).iterrows():
+                linhas.append("- {} ({}): {} historico".format(
+                    r.get("cliente_nome","—"), r.get("cliente_email","—"), fmt_brl(r.get("receita_historico",0))))
+
+        if not df_nr.empty:
+            rec = df_nr[df_nr["tipo_cliente"]=="Recorrente"].sort_values("mes")
+            if len(rec) >= 2:
+                r0 = safe_float(rec["receita"].iloc[0])
+                r1 = safe_float(rec["receita"].iloc[-1])
+                if r0 > 0:
+                    linhas += ["", "RECORRENTES: de {} para {} ({:+.1f}% no periodo)".format(
+                        fmt_brl(r0), fmt_brl(r1), (r1-r0)/r0*100)]
+
+        if not df_pag.empty and "mes" in df_pag.columns:
+            meses_p = sorted(df_pag["mes"].unique())
+            if len(meses_p) >= 2:
+                f_rec = set(df_pag[df_pag["mes"]==meses_p[-1]]["forma_pagamento"].tolist())
+                f_ant = set(df_pag[df_pag["mes"]==meses_p[-2]]["forma_pagamento"].tolist())
+                removidas = f_ant - f_rec
+                if removidas:
+                    linhas += ["", "PAGAMENTO REMOVIDO: {}".format(", ".join(removidas))]
+
+        return "\n".join(linhas)
+
+    # Botão de IA
+    if "ia_resultado" not in st.session_state:
+        st.session_state["ia_resultado"] = None
+    if "ia_loja_id" not in st.session_state:
+        st.session_state["ia_loja_id"] = None
+
+    col_ia_btn, col_ia_clear = st.columns([3,1])
+    with col_ia_btn:
+        if st.button("🤖 Gerar diagnóstico com IA", use_container_width=True, key="btn_ia_groq"):
+            ctx = montar_contexto_ia(loja, tend, df_ch, df_nr, status_real, var_gmv)
+            with st.spinner("Analisando com IA..."):
+                resultado, erro = chamar_groq(ctx)
+            if erro:
+                st.error(f"Erro: {erro}")
+            else:
+                st.session_state["ia_resultado"] = resultado
+                st.session_state["ia_loja_id"]   = lid
+    with col_ia_clear:
+        if st.button("✕ Limpar", use_container_width=True, key="btn_ia_clear"):
+            st.session_state["ia_resultado"] = None
+
+    if st.session_state.get("ia_resultado") and st.session_state.get("ia_loja_id") == lid:
+        texto = st.session_state["ia_resultado"]
+        st.markdown(
+            f"<div style='background:#F8F5F0;border:1px solid #E8E4DE;border-radius:12px;"
+            f"padding:1.2rem;font-size:13px;line-height:1.8;color:#1A2E2B;margin-top:.5rem'>"
+            f"{texto.replace(chr(10), '<br>')}"
+            f"</div>", unsafe_allow_html=True)
+        st.caption("Gerado por llama3-70b via Groq · Para produção: migrar para gptoss-120b via LiteLLM proxy da LI")
+
     # ── ROADMAP ───────────────────────────────────────────────────────────────
     st.markdown("""
     <div style='background:#0D4F4A;border-radius:12px;padding:1rem 1.5rem'>
