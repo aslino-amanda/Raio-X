@@ -185,7 +185,72 @@ def buscar_top_lojas():
     LEFT JOIN analytics_manual.mv_loja l ON b.loja_id = l.loja_id
     WHERE b.gmv_media_2m >= 10000
     ORDER BY b.gmv_90d DESC
-    LIMIT 100
+    """)
+
+@st.cache_data(ttl=600)
+def buscar_declinio_gradual():
+    """
+    Detecta lojas com queda de GMV em 3 ou mais meses consecutivos nos últimos 4 meses.
+    Universo: qualquer loja com GMV médio >= R$10k no período.
+    """
+    return rodar_sql("""
+    WITH mensal AS (
+        SELECT
+            loja_id,
+            DATE_FORMAT(data_criacao_pedido, '%Y-%m') AS mes,
+            ROUND(SUM(vlr_total), 2) AS gmv
+        FROM analytics_manual.mv_pedido
+        WHERE data_criacao_pedido >= DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 5 MONTH), '%Y-%m-01')
+          AND data_criacao_pedido <  DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
+          AND (integrador IS NULL OR marketplace IS NULL)
+          AND flag_aprovado_hist = 1
+        GROUP BY loja_id, mes
+    ),
+    pivotado AS (
+        SELECT
+            loja_id,
+            MAX(IF(mes = DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 4 MONTH), '%Y-%m'), gmv, NULL)) AS m4,
+            MAX(IF(mes = DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH), '%Y-%m'), gmv, NULL)) AS m3,
+            MAX(IF(mes = DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 2 MONTH), '%Y-%m'), gmv, NULL)) AS m2,
+            MAX(IF(mes = DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH), '%Y-%m'), gmv, NULL)) AS m1
+        FROM mensal
+        GROUP BY loja_id
+    ),
+    declinio AS (
+        SELECT
+            loja_id,
+            m4, m3, m2, m1,
+            -- Queda consecutiva: cada mês menor que o anterior
+            CASE
+                WHEN m4 > 0 AND m3 < m4 AND m2 < m3 AND m1 < m2 THEN 4
+                WHEN m3 > 0 AND m2 < m3 AND m1 < m2             THEN 3
+                ELSE 0
+            END AS meses_consecutivos_queda,
+            ROUND((m1 - GREATEST(m4, m3)) / NULLIF(GREATEST(m4, m3), 0) * 100, 1) AS var_acumulada_pct,
+            ROUND((m4 + m3 + m2 + m1) / 4, 2) AS gmv_medio_4m
+        FROM pivotado
+        WHERE m1 IS NOT NULL AND m2 IS NOT NULL AND m3 IS NOT NULL
+    )
+    SELECT
+        d.loja_id AS conta_id,
+        l.nome_loja,
+        upper(l.segmento_loja) AS segmento,
+        l.tier_loja,
+        l.tipo_plano_atual,
+        d.m4, d.m3, d.m2, d.m1,
+        d.meses_consecutivos_queda,
+        d.var_acumulada_pct,
+        d.gmv_medio_4m,
+        DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 4 MONTH), '%Y-%m') AS label_m4,
+        DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH), '%Y-%m') AS label_m3,
+        DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 2 MONTH), '%Y-%m') AS label_m2,
+        DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH), '%Y-%m') AS label_m1
+    FROM declinio d
+    LEFT JOIN analytics_manual.mv_loja l ON d.loja_id = l.loja_id
+    WHERE d.meses_consecutivos_queda >= 3
+      AND d.gmv_medio_4m >= 10000
+      AND d.var_acumulada_pct <= -15
+    ORDER BY d.var_acumulada_pct ASC
     """)
 
 def buscar_tendencia_semanal(conta_id: int) -> dict:
@@ -1371,87 +1436,268 @@ gmv_total_risco = max(0,
     pd.to_numeric(df_risco["gmv_projetado"], errors="coerce").fillna(0).sum()
 )
 
-# Banner de risco
-st.markdown(f"""
-<div style='background:#0D4F4A;border-radius:12px;padding:1rem 1.5rem;margin-bottom:1rem;
-            display:flex;justify-content:space-between;align-items:center'>
-    <div>
-        <div style='font-size:11px;color:#9DCFCC;text-transform:uppercase;letter-spacing:.1em'>
-            GMV em risco este mês
-        </div>
-        <div style='font-size:28px;font-weight:800;color:#D4F53C'>{fmt_brl(gmv_total_risco)}</div>
-        <div style='font-size:12px;color:#9DCFCC;margin-top:2px'>
-            em {n_risco} loja(s) com queda detectada · de {len(df_top)} monitoradas
-        </div>
-    </div>
-    <div style='text-align:right'>
-        <div style='font-size:14px;color:white'>
-            🔴 {n_critico} crítico &nbsp;·&nbsp; 🟡 {n_atencao} risco &nbsp;·&nbsp; 🟢 {n_ok} OK
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+# ════════════════════════════════════════════════════════════════════════════════
+# PAINEL PRINCIPAL — top sellers em risco
+# ════════════════════════════════════════════════════════════════════════════════
+with st.spinner("Carregando painel de risco..."):
+    try:
+        df_top = buscar_top_lojas()
+    except Exception as e:
+        st.error(f"Erro ao carregar top sellers: {e}")
+        st.stop()
 
-if n_risco == 0:
-    st.markdown("""
-    <div style='background:#F0FDF4;border:1px solid #86EFAC;border-radius:10px;
-                padding:1rem;font-size:13px;color:#166534;text-align:center'>
-        ✅ Nenhum top seller com queda de 20%+ hoje.
-    </div>
-    """, unsafe_allow_html=True)
+if df_top.empty:
+    st.info("Nenhum dado de top sellers disponível.")
     st.stop()
 
-st.markdown(f"**{n_risco} loja(s) em risco — clique em ⚡ Raio X para diagnóstico completo**")
-dia_atual = date.today().day
+df_top["var_projetado_pct"] = pd.to_numeric(df_top["var_projetado_pct"], errors="coerce")
+df_risco = df_top[df_top["var_projetado_pct"] <= -20].copy()
+df_risco["gmv_em_risco"] = (
+    pd.to_numeric(df_risco["gmv_media_2m"], errors="coerce") -
+    pd.to_numeric(df_risco["gmv_projetado"], errors="coerce")
+).clip(lower=0).round(2)
 
-for _, r in df_risco.sort_values("var_projetado_pct").iterrows():
-    lid      = int(r["conta_id"])
-    nome_r   = str(r.get("nome_loja","—"))
-    var_v    = float(r["var_projetado_pct"])
-    cor_v    = "#E24B4A" if var_v <= -50 else "#F59E0B"
-    gmv_r    = safe_float(r["gmv_em_risco"])
-    hist_r   = buscar_historico_mensal(lid)
-    spark    = gerar_sparkline(hist_r.get("vals", []), mostrar_legenda=True, meses=hist_r.get("meses"))
+n_risco   = len(df_risco)
+n_critico = len(df_top[df_top["var_projetado_pct"] <= -50])
+n_atencao = len(df_top[(df_top["var_projetado_pct"] > -50) & (df_top["var_projetado_pct"] <= -20)])
+n_ok      = len(df_top[df_top["var_projetado_pct"] > -20])
+gmv_total_risco = max(0,
+    pd.to_numeric(df_risco["gmv_media_2m"], errors="coerce").fillna(0).sum() -
+    pd.to_numeric(df_risco["gmv_projetado"], errors="coerce").fillna(0).sum()
+)
 
-    with st.container():
-        col_info, col_metr, col_spark, col_btn = st.columns([3, 2, 1.5, 1])
+# ── ABAS ─────────────────────────────────────────────────────────────────────
+aba_aguda, aba_gradual = st.tabs(["⚡ Queda aguda", "📉 Declínio gradual"])
 
-        with col_info:
-            st.markdown(
-                f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;height:100%'>"
-                f"<div style='font-size:13px;font-weight:700;color:#1A2E2B'>{nome_r}</div>"
-                f"<div style='font-size:11px;color:#888;margin-top:2px'>ID {lid} · {r.get('segmento','—')}</div>"
-                f"<div style='font-size:11px;color:#888'>Tier: {r.get('tier_loja','—')} · {r.get('tipo_plano_atual','—')}</div>"
-                f"</div>", unsafe_allow_html=True)
+# ════════════════════════════════════════════════════════════════════════════════
+# ABA 1 — QUEDA AGUDA
+# ════════════════════════════════════════════════════════════════════════════════
+with aba_aguda:
 
-        with col_metr:
-            st.markdown(
-                f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;height:100%'>"
-                f"<div style='font-size:11px;color:#888'>Média 2m (d1-{dia_atual})</div>"
-                f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(r['gmv_media_2m'])}</div>"
-                f"<div style='font-size:11px;color:#888;margin-top:4px'>Projetado este mês</div>"
-                f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(r['gmv_projetado'])}</div>"
-                f"<div style='font-size:12px;font-weight:700;color:{cor_v};margin-top:4px'>"
-                f"{var_v:.0f}% · {fmt_brl(gmv_r)} em risco</div>"
-                f"</div>", unsafe_allow_html=True)
+    # Banner de risco
+    st.markdown(f"""
+    <div style='background:#0D4F4A;border-radius:12px;padding:1rem 1.5rem;margin-bottom:1rem;
+                display:flex;justify-content:space-between;align-items:center'>
+        <div>
+            <div style='font-size:11px;color:#9DCFCC;text-transform:uppercase;letter-spacing:.1em'>
+                GMV em risco este mês
+            </div>
+            <div style='font-size:28px;font-weight:800;color:#D4F53C'>{fmt_brl(gmv_total_risco)}</div>
+            <div style='font-size:12px;color:#9DCFCC;margin-top:2px'>
+                em {n_risco} loja(s) com queda detectada · de {len(df_top)} monitoradas
+            </div>
+        </div>
+        <div style='text-align:right'>
+            <div style='font-size:14px;color:white'>
+                🔴 {n_critico} crítico &nbsp;·&nbsp; 🟡 {n_atencao} risco &nbsp;·&nbsp; 🟢 {n_ok} OK
+            </div>
+            <div style='font-size:11px;color:#9DBDBB;margin-top:4px'>
+                Queda de 20%+ no GMV projetado vs média dos 2 meses anteriores
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        with col_spark:
-            st.markdown(
-                f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;text-align:center;height:100%'>"
-                f"<div style='font-size:10px;color:#888;margin-bottom:4px'>GMV · 6 meses</div>"
-                f"{spark}"
-                f"</div>", unsafe_allow_html=True)
+    if n_risco == 0:
+        st.markdown("""
+        <div style='background:#F0FDF4;border:1px solid #86EFAC;border-radius:10px;
+                    padding:1rem;font-size:13px;color:#166534;text-align:center'>
+            ✅ Nenhuma loja com queda aguda de 20%+ hoje.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"**{n_risco} loja(s) em risco — clique em ⚡ Raio X para diagnóstico completo**")
+        dia_atual = date.today().day
 
-        with col_btn:
-            if st.button("⚡ Raio X", key=f"rx_{lid}", use_container_width=True):
-                st.session_state.rx_loja_id = lid
-                st.rerun()
+        for _, r in df_risco.sort_values("var_projetado_pct").iterrows():
+            lid      = int(r["conta_id"])
+            nome_r   = str(r.get("nome_loja", "—"))
+            var_v    = float(r["var_projetado_pct"])
+            cor_v    = "#E24B4A" if var_v <= -50 else "#F59E0B"
+            gmv_r    = safe_float(r["gmv_em_risco"])
+            hist_r   = buscar_historico_mensal(lid)
+            spark    = gerar_sparkline(hist_r.get("vals", []), mostrar_legenda=True, meses=hist_r.get("meses"))
 
-        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            with st.container():
+                col_info, col_metr, col_spark, col_btn = st.columns([3, 2, 1.5, 1])
 
-st.divider()
-st.download_button("⬇️ Exportar CSV",
-    data=df_risco[["conta_id","nome_loja","segmento","gmv_media_2m",
-                   "gmv_projetado","var_projetado_pct","gmv_em_risco"]].to_csv(index=False).encode("utf-8"),
-    file_name=f"top_sellers_risco_{date.today().strftime('%Y%m%d')}.csv",
-    mime="text/csv")
+                with col_info:
+                    st.markdown(
+                        f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;height:100%'>"
+                        f"<div style='font-size:13px;font-weight:700;color:#1A2E2B'>{nome_r}</div>"
+                        f"<div style='font-size:11px;color:#888;margin-top:2px'>ID {lid} · {r.get('segmento','—')}</div>"
+                        f"<div style='font-size:11px;color:#888'>Tier: {r.get('tier_loja','—')} · {r.get('tipo_plano_atual','—')}</div>"
+                        f"</div>", unsafe_allow_html=True)
+
+                with col_metr:
+                    st.markdown(
+                        f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;height:100%'>"
+                        f"<div style='font-size:11px;color:#888'>Média 2m (d1-{dia_atual})</div>"
+                        f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(r['gmv_media_2m'])}</div>"
+                        f"<div style='font-size:11px;color:#888;margin-top:4px'>Projetado este mês</div>"
+                        f"<div style='font-size:13px;font-weight:600;color:#1A2E2B'>{fmt_brl(r['gmv_projetado'])}</div>"
+                        f"<div style='font-size:12px;font-weight:700;color:{cor_v};margin-top:4px'>"
+                        f"{var_v:.0f}% · {fmt_brl(gmv_r)} em risco</div>"
+                        f"</div>", unsafe_allow_html=True)
+
+                with col_spark:
+                    st.markdown(
+                        f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;text-align:center;height:100%'>"
+                        f"<div style='font-size:10px;color:#888;margin-bottom:4px'>GMV · 6 meses</div>"
+                        f"{spark}"
+                        f"</div>", unsafe_allow_html=True)
+
+                with col_btn:
+                    if st.button("⚡ Raio X", key=f"rx_aguda_{lid}", use_container_width=True):
+                        st.session_state.rx_loja_id = lid
+                        st.rerun()
+
+                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+    st.divider()
+    st.download_button("⬇️ Exportar CSV",
+        data=df_risco[["conta_id","nome_loja","segmento","gmv_media_2m",
+                       "gmv_projetado","var_projetado_pct","gmv_em_risco"]].to_csv(index=False).encode("utf-8"),
+        file_name=f"queda_aguda_{date.today().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        key="dl_aguda")
+
+# ════════════════════════════════════════════════════════════════════════════════
+# ABA 2 — DECLÍNIO GRADUAL
+# ════════════════════════════════════════════════════════════════════════════════
+with aba_gradual:
+
+    with st.spinner("Carregando declínios graduais..."):
+        try:
+            df_grad = buscar_declinio_gradual()
+        except Exception as e:
+            st.error(f"Erro ao carregar declínio gradual: {e}")
+            df_grad = pd.DataFrame()
+
+    if df_grad.empty:
+        st.markdown("""
+        <div style='background:#F0FDF4;border:1px solid #86EFAC;border-radius:10px;
+                    padding:1rem;font-size:13px;color:#166534;text-align:center'>
+            ✅ Nenhuma loja com declínio gradual de 3+ meses consecutivos detectado.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        n_grad   = len(df_grad)
+        n_4meses = len(df_grad[df_grad["meses_consecutivos_queda"] >= 4])
+        n_3meses = len(df_grad[df_grad["meses_consecutivos_queda"] == 3])
+
+        # Banner
+        st.markdown(f"""
+        <div style='background:#1A2E2B;border-radius:12px;padding:1rem 1.5rem;margin-bottom:1rem;
+                    display:flex;justify-content:space-between;align-items:center'>
+            <div>
+                <div style='font-size:11px;color:#9DCFCC;text-transform:uppercase;letter-spacing:.1em'>
+                    Declínio silencioso detectado
+                </div>
+                <div style='font-size:28px;font-weight:800;color:#D4F53C'>{n_grad} loja(s)</div>
+                <div style='font-size:12px;color:#9DCFCC;margin-top:2px'>
+                    com queda de GMV em meses consecutivos — radar expandido
+                </div>
+            </div>
+            <div style='text-align:right'>
+                <div style='font-size:14px;color:white'>
+                    🔴 {n_4meses} · 4 meses seguidos &nbsp;·&nbsp; 🟡 {n_3meses} · 3 meses seguidos
+                </div>
+                <div style='font-size:11px;color:#9DBDBB;margin-top:4px'>
+                    Queda mês a mês — pode não aparecer na aba Queda aguda
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown(f"**{n_grad} loja(s) em declínio gradual — clique em ⚡ Raio X para diagnóstico completo**")
+
+        for _, r in df_grad.iterrows():
+            lid       = int(r["conta_id"])
+            nome_r    = str(r.get("nome_loja", "—"))
+            var_ac    = safe_float(r["var_acumulada_pct"])
+            n_meses   = safe_int(r["meses_consecutivos_queda"])
+            cor_badge = "#991B1B" if n_meses >= 4 else "#92400E"
+            bg_badge  = "#FEF2F2" if n_meses >= 4 else "#FFFBEB"
+
+            # Mini tabela de evolução mensal
+            def _fmt_mes(label):
+                try:
+                    from datetime import datetime
+                    return datetime.strptime(str(label), "%Y-%m").strftime("%b/%y")
+                except Exception:
+                    return str(label)
+
+            meses_vals = [
+                (_fmt_mes(r.get("label_m4", "")), safe_float(r.get("m4"))),
+                (_fmt_mes(r.get("label_m3", "")), safe_float(r.get("m3"))),
+                (_fmt_mes(r.get("label_m2", "")), safe_float(r.get("m2"))),
+                (_fmt_mes(r.get("label_m1", "")), safe_float(r.get("m1"))),
+            ]
+
+            with st.container():
+                col_info, col_evol, col_spark, col_btn = st.columns([3, 2.5, 1.5, 1])
+
+                with col_info:
+                    st.markdown(
+                        f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;height:100%'>"
+                        f"<div style='font-size:13px;font-weight:700;color:#1A2E2B'>{nome_r}</div>"
+                        f"<div style='font-size:11px;color:#888;margin-top:2px'>ID {lid} · {r.get('segmento','—')}</div>"
+                        f"<div style='font-size:11px;color:#888'>Tier: {r.get('tier_loja','—')} · {r.get('tipo_plano_atual','—')}</div>"
+                        f"<div style='margin-top:6px'>"
+                        f"<span style='background:{bg_badge};color:{cor_badge};padding:2px 8px;"
+                        f"border-radius:20px;font-size:11px;font-weight:700'>"
+                        f"📉 {n_meses} meses consecutivos</span>"
+                        f"</div>"
+                        f"</div>", unsafe_allow_html=True)
+
+                with col_evol:
+                    # Evolução mês a mês com setas
+                    cells = ""
+                    for i, (mes_lbl, gmv_v) in enumerate(meses_vals):
+                        if gmv_v == 0:
+                            continue
+                        if i > 0 and meses_vals[i-1][1] > 0:
+                            diff = gmv_v - meses_vals[i-1][1]
+                            seta = f"<span style='color:#E24B4A'>▼</span>" if diff < 0 else f"<span style='color:#1ABCB0'>▲</span>"
+                        else:
+                            seta = ""
+                        cells += (
+                            f"<div style='text-align:center'>"
+                            f"<div style='font-size:10px;color:#AAA'>{mes_lbl}</div>"
+                            f"<div style='font-size:12px;font-weight:600;color:#1A2E2B'>{fmt_brl(gmv_v)}</div>"
+                            f"<div style='font-size:12px'>{seta}</div>"
+                            f"</div>"
+                        )
+                    st.markdown(
+                        f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;height:100%'>"
+                        f"<div style='font-size:11px;color:#888;margin-bottom:.4rem'>Evolução mensal</div>"
+                        f"<div style='display:flex;gap:.8rem;align-items:flex-end;flex-wrap:wrap'>{cells}</div>"
+                        f"<div style='font-size:12px;font-weight:700;color:#E24B4A;margin-top:.4rem'>"
+                        f"Acumulado: {var_ac:.0f}%</div>"
+                        f"</div>", unsafe_allow_html=True)
+
+                with col_spark:
+                    hist_r = buscar_historico_mensal(lid)
+                    spark  = gerar_sparkline(hist_r.get("vals", []), mostrar_legenda=True, meses=hist_r.get("meses"))
+                    st.markdown(
+                        f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;text-align:center;height:100%'>"
+                        f"<div style='font-size:10px;color:#888;margin-bottom:4px'>GMV · 6 meses</div>"
+                        f"{spark}"
+                        f"</div>", unsafe_allow_html=True)
+
+                with col_btn:
+                    if st.button("⚡ Raio X", key=f"rx_grad_{lid}", use_container_width=True):
+                        st.session_state.rx_loja_id = lid
+                        st.rerun()
+
+                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+        st.divider()
+        cols_export = [c for c in ["conta_id","nome_loja","segmento","m4","m3","m2","m1",
+                                    "meses_consecutivos_queda","var_acumulada_pct"] if c in df_grad.columns]
+        st.download_button("⬇️ Exportar CSV",
+            data=df_grad[cols_export].to_csv(index=False).encode("utf-8"),
+            file_name=f"declinio_gradual_{date.today().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            key="dl_gradual")
