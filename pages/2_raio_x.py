@@ -94,7 +94,7 @@ def dias_desde(d):
     try: return (date.today() - datetime.strptime(str(d)[:10],"%Y-%m-%d").date()).days
     except Exception: return None
 
-def gerar_sparkline(vals, w=80, h=28):
+def gerar_sparkline(vals, w=80, h=28, mostrar_legenda=False, meses=None):
     if not vals or len(vals) < 2:
         return "<span style='color:#ccc;font-size:11px'>—</span>"
     try:
@@ -106,10 +106,38 @@ def gerar_sparkline(vals, w=80, h=28):
         cor = "#E24B4A" if vals[-1] < vals[0] else "#1ABCB0"
         seta = "▼" if vals[-1] < vals[-2] else "▲"
         cors = "#E24B4A" if vals[-1] < vals[-2] else "#1ABCB0"
-        return (f'<svg width="{w}" height="{h}" xmlns="http://www.w3.org/2000/svg">'
-                f'<polyline points="{pts}" fill="none" stroke="{cor}" stroke-width="2"/>'
-                f'<circle cx="{_x(len(vals)-1)}" cy="{_y(vals[-1])}" r="3" fill="{cor}"/>'
-                f'</svg><span style="color:{cors};font-size:10px;margin-left:2px">{seta}</span>')
+        svg = (f'<svg width="{w}" height="{h}" xmlns="http://www.w3.org/2000/svg">'
+               f'<polyline points="{pts}" fill="none" stroke="{cor}" stroke-width="2"/>'
+               f'<circle cx="{_x(len(vals)-1)}" cy="{_y(vals[-1])}" r="3" fill="{cor}"/>'
+               f'</svg>')
+
+        if mostrar_legenda and vals[-2] and vals[-2] != 0:
+            var_pct = (vals[-1] - vals[-2]) / vals[-2] * 100
+            sinal = "+" if var_pct > 0 else ""
+            # Label do mês de referência (anterior)
+            if meses and len(meses) >= 2:
+                try:
+                    from datetime import datetime
+                    mes_ref = datetime.strptime(meses[-2], "%Y-%m").strftime("%b/%y").lower()
+                except Exception:
+                    mes_ref = "mês ant."
+            else:
+                mes_ref = "mês ant."
+            legenda = (
+                f"<div style='display:flex;flex-direction:column;justify-content:center;"
+                f"margin-left:8px;line-height:1.3'>"
+                f"<span style='font-size:13px;font-weight:700;color:{cors}'>"
+                f"{seta} {sinal}{var_pct:.0f}%</span>"
+                f"<span style='font-size:10px;color:#AAA'>vs {mes_ref}</span>"
+                f"</div>"
+            )
+            return (
+                f"<div style='display:flex;align-items:center'>"
+                f"{svg}{legenda}"
+                f"</div>"
+            )
+
+        return f'{svg}<span style="color:{cors};font-size:10px;margin-left:2px">{seta}</span>'
     except Exception: return "—"
 
 # ── QUERIES ───────────────────────────────────────────────────────────────────
@@ -214,7 +242,8 @@ def buscar_tendencia_semanal(conta_id: int) -> dict:
         "ref_de": str(p.get("ref_de","")), "ref_ate": str(p.get("ref_ate","")),
     }
 
-def buscar_historico_mensal(conta_id: int) -> list:
+def buscar_historico_mensal(conta_id: int) -> dict:
+    """Retorna dict com 'vals' (lista de GMV) e 'meses' (lista de strings '%Y-%m')."""
     try:
         df = rodar_sql(f"""
         SELECT
@@ -228,8 +257,11 @@ def buscar_historico_mensal(conta_id: int) -> list:
           AND D.pedido_venda_situacao_nome != 'Pedido Cancelado'
         GROUP BY mes ORDER BY mes ASC
         """)
-        return df["gmv"].tolist() if not df.empty else []
-    except Exception: return []
+        if df.empty:
+            return {"vals": [], "meses": []}
+        return {"vals": df["gmv"].tolist(), "meses": df["mes"].tolist()}
+    except Exception:
+        return {"vals": [], "meses": []}
 
 def buscar_mix_pagamento(conta_id: int) -> pd.DataFrame:
     try:
@@ -650,11 +682,12 @@ if st.session_state.rx_loja_id:
         st.info("Histórico semanal insuficiente para calcular tendência.")
 
     # Sparkline histórico
-    if hist:
+    if hist and hist.get("vals"):
         st.markdown("**Histórico GMV — últimos 6 meses**")
         st.markdown(
             f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;display:inline-block'>"
-            f"{gerar_sparkline(hist, w=200, h=40)}</div>", unsafe_allow_html=True)
+            f"{gerar_sparkline(hist['vals'], w=200, h=40, mostrar_legenda=True, meses=hist.get('meses'))}</div>",
+            unsafe_allow_html=True)
 
     st.divider()
 
@@ -1378,7 +1411,7 @@ for _, r in df_risco.sort_values("var_projetado_pct").iterrows():
     cor_v    = "#E24B4A" if var_v <= -50 else "#F59E0B"
     gmv_r    = safe_float(r["gmv_em_risco"])
     hist_r   = buscar_historico_mensal(lid)
-    spark    = gerar_sparkline(hist_r)
+    spark    = gerar_sparkline(hist_r.get("vals", []), mostrar_legenda=True, meses=hist_r.get("meses"))
 
     with st.container():
         col_info, col_metr, col_spark, col_btn = st.columns([3, 2, 1.5, 1])
@@ -1405,7 +1438,7 @@ for _, r in df_risco.sort_values("var_projetado_pct").iterrows():
         with col_spark:
             st.markdown(
                 f"<div style='background:white;border-radius:10px;padding:.8rem 1rem;text-align:center;height:100%'>"
-                f"<div style='font-size:10px;color:#888;margin-bottom:4px'>6 meses</div>"
+                f"<div style='font-size:10px;color:#888;margin-bottom:4px'>GMV · 6 meses</div>"
                 f"{spark}"
                 f"</div>", unsafe_allow_html=True)
 
