@@ -192,66 +192,84 @@ def buscar_declinio_gradual():
     """
     Detecta lojas com queda de GMV em 3 ou mais meses consecutivos nos últimos 4 meses.
     Universo: qualquer loja com GMV médio >= R$10k no período.
+    Query simples em 2 etapas para evitar problemas de compatibilidade com CTEs aninhados.
     """
-    return rodar_sql("""
-    WITH mensal AS (
-        SELECT
-            loja_id,
-            DATE_FORMAT(data_criacao_pedido, '%Y-%m') AS mes,
-            ROUND(SUM(vlr_total), 2) AS gmv
-        FROM analytics_manual.mv_pedido
-        WHERE data_criacao_pedido >= DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 5 MONTH), '%Y-%m-01')
-          AND data_criacao_pedido <  DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
-          AND (integrador IS NULL OR marketplace IS NULL)
-          AND flag_aprovado_hist = 1
-        GROUP BY loja_id, mes
-    ),
-    pivotado AS (
-        SELECT
-            loja_id,
-            MAX(IF(mes = DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 4 MONTH), '%Y-%m'), gmv, NULL)) AS m4,
-            MAX(IF(mes = DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH), '%Y-%m'), gmv, NULL)) AS m3,
-            MAX(IF(mes = DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 2 MONTH), '%Y-%m'), gmv, NULL)) AS m2,
-            MAX(IF(mes = DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH), '%Y-%m'), gmv, NULL)) AS m1
-        FROM mensal
-        GROUP BY loja_id
-    ),
-    declinio AS (
-        SELECT
-            loja_id,
-            m4, m3, m2, m1,
-            -- Queda consecutiva: cada mês menor que o anterior
-            CASE
-                WHEN m4 > 0 AND m3 < m4 AND m2 < m3 AND m1 < m2 THEN 4
-                WHEN m3 > 0 AND m2 < m3 AND m1 < m2             THEN 3
-                ELSE 0
-            END AS meses_consecutivos_queda,
-            ROUND((m1 - GREATEST(m4, m3)) / NULLIF(GREATEST(m4, m3), 0) * 100, 1) AS var_acumulada_pct,
-            ROUND((m4 + m3 + m2 + m1) / 4, 2) AS gmv_medio_4m
-        FROM pivotado
-        WHERE m1 IS NOT NULL AND m2 IS NOT NULL AND m3 IS NOT NULL
-    )
+    from datetime import date as _date
+    from dateutil.relativedelta import relativedelta
+
+    hoje = _date.today()
+    m1 = (hoje - relativedelta(months=1)).strftime("%Y-%m")
+    m2 = (hoje - relativedelta(months=2)).strftime("%Y-%m")
+    m3 = (hoje - relativedelta(months=3)).strftime("%Y-%m")
+    m4 = (hoje - relativedelta(months=4)).strftime("%Y-%m")
+    data_ini = (hoje - relativedelta(months=5)).strftime("%Y-%m-01")
+    data_fim = hoje.strftime("%Y-%m-01")
+
+    sql = f"""
     SELECT
-        d.loja_id AS conta_id,
+        p.loja_id                                                                           AS conta_id,
         l.nome_loja,
-        upper(l.segmento_loja) AS segmento,
+        upper(l.segmento_loja)                                                              AS segmento,
         l.tier_loja,
         l.tipo_plano_atual,
-        d.m4, d.m3, d.m2, d.m1,
-        d.meses_consecutivos_queda,
-        d.var_acumulada_pct,
-        d.gmv_medio_4m,
-        DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 4 MONTH), '%Y-%m') AS label_m4,
-        DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH), '%Y-%m') AS label_m3,
-        DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 2 MONTH), '%Y-%m') AS label_m2,
-        DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH), '%Y-%m') AS label_m1
-    FROM declinio d
-    LEFT JOIN analytics_manual.mv_loja l ON d.loja_id = l.loja_id
-    WHERE d.meses_consecutivos_queda >= 3
-      AND d.gmv_medio_4m >= 10000
-      AND d.var_acumulada_pct <= -15
-    ORDER BY d.var_acumulada_pct ASC
-    """)
+        ROUND(SUM(IF(DATE_FORMAT(data_criacao_pedido,'%Y-%m') = '{m4}', vlr_total, 0)), 2) AS m4,
+        ROUND(SUM(IF(DATE_FORMAT(data_criacao_pedido,'%Y-%m') = '{m3}', vlr_total, 0)), 2) AS m3,
+        ROUND(SUM(IF(DATE_FORMAT(data_criacao_pedido,'%Y-%m') = '{m2}', vlr_total, 0)), 2) AS m2,
+        ROUND(SUM(IF(DATE_FORMAT(data_criacao_pedido,'%Y-%m') = '{m1}', vlr_total, 0)), 2) AS m1,
+        '{m4}'                                                                              AS label_m4,
+        '{m3}'                                                                              AS label_m3,
+        '{m2}'                                                                              AS label_m2,
+        '{m1}'                                                                              AS label_m1
+    FROM analytics_manual.mv_pedido p
+    LEFT JOIN analytics_manual.mv_loja l ON p.loja_id = l.loja_id
+    WHERE data_criacao_pedido >= '{data_ini}'
+      AND data_criacao_pedido <  '{data_fim}'
+      AND (integrador IS NULL OR marketplace IS NULL)
+      AND flag_aprovado_hist = 1
+    GROUP BY p.loja_id, l.nome_loja, l.segmento_loja, l.tier_loja, l.tipo_plano_atual
+    HAVING
+        m1 > 0 AND m2 > 0 AND m3 > 0
+        AND (m2 + m3 + m1) / 3 >= 10000
+    """
+
+    try:
+        df = rodar_sql(sql)
+    except Exception as e:
+        raise e
+
+    if df.empty:
+        return pd.DataFrame()
+
+    for col in ["m1","m2","m3","m4"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    # Detecta consecutivos no Python — mais simples e sem risco de erro SQL
+    def _consecutivos(row):
+        vals = [row["m4"], row["m3"], row["m2"], row["m1"]]
+        # 4 meses: m4>m3>m2>m1
+        if vals[0] > 0 and vals[1] < vals[0] and vals[2] < vals[1] and vals[3] < vals[2]:
+            return 4
+        # 3 meses: m3>m2>m1 (m4 pode ser 0 ou não existir)
+        if vals[1] > 0 and vals[2] < vals[1] and vals[3] < vals[2]:
+            return 3
+        return 0
+
+    def _var_acumulada(row):
+        pico = max(row["m4"], row["m3"])
+        if pico == 0:
+            return 0.0
+        return round((row["m1"] - pico) / pico * 100, 1)
+
+    df["meses_consecutivos_queda"] = df.apply(_consecutivos, axis=1)
+    df["var_acumulada_pct"]        = df.apply(_var_acumulada, axis=1)
+    df["gmv_medio_4m"]             = ((df["m1"] + df["m2"] + df["m3"] + df["m4"]) / 4).round(2)
+
+    df = df[
+        (df["meses_consecutivos_queda"] >= 3) &
+        (df["var_acumulada_pct"] <= -15)
+    ].sort_values("var_acumulada_pct").reset_index(drop=True)
+
+    return df
 
 def buscar_tendencia_semanal(conta_id: int) -> dict:
     """2 queries separadas — evita timeout do CROSS JOIN."""
@@ -1572,6 +1590,7 @@ with aba_gradual:
             df_grad = buscar_declinio_gradual()
         except Exception as e:
             st.error(f"Erro ao carregar declínio gradual: {e}")
+            st.caption("Dica: verifique se as colunas `data_criacao_pedido`, `vlr_total`, `flag_aprovado_hist` e `integrador` existem em `analytics_manual.mv_pedido`.")
             df_grad = pd.DataFrame()
 
     if df_grad.empty:
