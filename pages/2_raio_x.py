@@ -1464,6 +1464,13 @@ with st.spinner("Carregando painel de risco..."):
         st.error(f"Erro ao carregar top sellers: {e}")
         st.stop()
 
+    try:
+        df_grad = buscar_declinio_gradual()
+    except Exception as e:
+        st.warning(f"Declínio gradual indisponível: {e}")
+        st.caption("Verifique se `data_criacao_pedido`, `vlr_total`, `flag_aprovado_hist` e `integrador` existem em `analytics_manual.mv_pedido`.")
+        df_grad = pd.DataFrame()
+
 if df_top.empty:
     st.info("Nenhum dado de top sellers disponível.")
     st.stop()
@@ -1584,14 +1591,6 @@ with aba_aguda:
 # ABA 2 — DECLÍNIO GRADUAL
 # ════════════════════════════════════════════════════════════════════════════════
 with aba_gradual:
-
-    with st.spinner("Carregando declínios graduais..."):
-        try:
-            df_grad = buscar_declinio_gradual()
-        except Exception as e:
-            st.error(f"Erro ao carregar declínio gradual: {e}")
-            st.caption("Dica: verifique se as colunas `data_criacao_pedido`, `vlr_total`, `flag_aprovado_hist` e `integrador` existem em `analytics_manual.mv_pedido`.")
-            df_grad = pd.DataFrame()
 
     if df_grad.empty:
         st.markdown("""
