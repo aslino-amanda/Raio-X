@@ -1170,7 +1170,7 @@ Estruture em 3 partes:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                 json={
-                    "model": "llama3-70b-8192",
+                    "model": "llama-3.3-70b-versatile",
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": contexto}
@@ -1180,7 +1180,8 @@ Estruture em 3 partes:
                 },
                 timeout=30
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                return None, "HTTP {}: {}".format(resp.status_code, resp.text[:500])
             texto = resp.json()["choices"][0]["message"]["content"]
             return texto, None
         except Exception as e:
